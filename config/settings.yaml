@@ -34,5 +34,6 @@ model_groups:
 default_model_group: default
 
 agent:
+  max_tool_rounds: 0  # 0 = 不限制工具轮次，可随时点击中止
   default_persona: shizuku
   thread_id: default

@@ -55,6 +55,8 @@ from app.gateway import router as gateway_router, require_api
 from app.task_plans import router as task_plan_router
 app.include_router(gateway_router)
 app.include_router(task_plan_router)
+from app.execution import router as execution_router
+app.include_router(execution_router)
 mount_static(app)
 
 

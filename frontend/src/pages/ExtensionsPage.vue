@@ -3,7 +3,7 @@
     <p class="kicker">WORKSPACE / EXTENSIONS</p><h1>扩展与本机智能体</h1>
     <p class="lede">管理技能来源、连接已安装的智能体，并查看运行观测状态。</p>
     <div class="section-tabs"><button v-for="tab in tabs" :key="tab.id" :class="{active: active === tab.id}" @click="active = tab.id">{{tab.label}}</button></div>
-    <p v-if="error" class="notice-error" role="alert">{{error}}</p>
+    <ToastNotice :message="error"/>
     <div v-content-motion="active">
     <section v-if="active === 'agents'" class="card">
       <h2>本机智能体</h2><p>检测 OpenCode、Codex、Claude、OpenClaw 等 CLI。</p>

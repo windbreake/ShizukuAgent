@@ -1,6 +1,6 @@
 <template>
   <section class="gateway-page"><header><p class="kicker">设置 / 连接</p><h1><UiIcon name="gateway" :size="24"/>连接网关</h1><p class="hint">配置 OpenAI 兼容 API 与 WebSocket 连接。</p></header>
-    <p v-if="message" role="status" :class="failed?'notice-error':'gateway-message'">{{message}}</p>
+    <ToastNotice :message="message" :type="failed?'error':'success'"/>
     <form @submit.prevent="save">
       <SettingSection title="监听设置" icon="sliders"><p>API 和 WebSocket 共用监听地址与端口。修改监听设置后重启后端生效。</p><div class="gateway-fields"><label>监听地址<select v-model="form.host"><option value="127.0.0.1">127.0.0.1（本机）</option><option value="0.0.0.0">0.0.0.0（全部网卡）</option><option v-if="!['127.0.0.1','0.0.0.0'].includes(form.host)" :value="form.host">{{form.host}}</option></select></label><label>监听端口<input v-model.number="form.port" type="number" min="1" max="65535" required/></label></div><p v-if="current">当前连接：{{current.host}}:{{current.port}}<span v-if="current.port!==form.port"> · 端口修改待重启生效</span></p></SettingSection>
       <SettingSection title="API 连接" icon="gateway"><div class="gateway-toggle"><p>OpenAI 兼容接口，可供外部应用调用。</p><button type="button" class="switch" role="switch" aria-label="启用 API 连接" :aria-checked="form.api_enabled" @click="form.api_enabled=!form.api_enabled"/></div><label class="endpoint-label">API Base URL<code>{{httpAddress}}/v1</code></label><p><code>GET /v1/models</code> · <code>POST /v1/chat/completions</code></p></SettingSection>

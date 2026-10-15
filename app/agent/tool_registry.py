@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextvars
+import time
+from app.execution import check, Stopped
 from app.approvals import ApprovalDenied
 from typing import Any, Callable
 
@@ -60,7 +62,18 @@ class ToolRegistry:
         if name == 'use_auxiliary_model':
             timeout = 370  # Human wait has its own 300-second deadline.
         try:
-            return future.result(timeout=timeout)
+            deadline=time.monotonic()+timeout if timeout is not None else None
+            while True:
+                check()
+                remaining=deadline-time.monotonic() if deadline else None
+                if remaining is not None and remaining<=0:raise concurrent.futures.TimeoutError()
+                try:return future.result(timeout=min(.1,remaining) if remaining is not None else .1)
+                except concurrent.futures.TimeoutError:
+                    if future.done():raise
+                    continue
+        except Stopped:
+            future.cancel()
+            raise
         except concurrent.futures.TimeoutError:
             return {
                 "ok": False,
@@ -79,6 +92,7 @@ class ToolRegistry:
         model_config: dict[str, Any] | None,
         storage: Any | None,
     ) -> dict[str, Any]:
+        check()
         impl = self._dynamic_impls.get(name)
         if impl is not None:
             try:

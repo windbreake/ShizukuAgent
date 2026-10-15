@@ -88,12 +88,12 @@
       "type": "http",
       "command": "",
       "args": [],
-      "url": "https://uno.mcpmarket.cn/mcp",
+      "url": "",
       "headers": {},
       "enabled": true,
       "status": "disconnected",
       "tools": [],
-      "updated_at": "2026-10-13T01:48:16Z"
+      "updated_at": "2026-10-15T07:09:49Z"
     },
     {
       "id": "ghmcp001",

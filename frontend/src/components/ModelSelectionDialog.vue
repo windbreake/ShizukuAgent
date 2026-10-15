@@ -4,7 +4,7 @@
    <header><div><h2 id="model-choice-title">选择模型</h2><p>{{providerName}} · 勾选后加入配置，取消勾选后从配置移除。</p></div><button class="icon-btn" type="button" aria-label="刷新远程模型" :disabled="loading" @click="emit('refresh')"><RefreshCw :size="17" :class="{spinning:loading}"/></button></header>
    <div class="selection-search"><SearchField v-model="query" placeholder="搜索模型…"/><button type="button" @click="selectVisible">全选</button><button type="button" @click="draft=[]">全不选</button></div>
    <div class="selection-meta"><span>已选 {{draft.length}} / 共 {{items.length}}</span><label><input type="checkbox" v-model="onlySelected"/>只看已选</label></div>
-   <p v-if="error" class="notice-error" role="alert">{{error}}</p>
+   <ToastNotice :message="error"/>
    <div class="selection-list" :aria-busy="loading">
     <div v-if="loading && !items.length" class="selection-empty"><RefreshCw :size="20" class="spinning"/>正在读取提供商模型…</div>
     <template v-for="group in groups" :key="group.title"><div v-if="group.models.length" class="selection-group">{{group.title}}</div><label v-for="model in group.models" :key="model.id" class="selection-row"><input v-model="draft" type="checkbox" :value="model.id" :aria-label="model.id"/><span class="model-text"><strong>{{model.name||model.id}}</strong><small v-if="model.name && model.name!==model.id">{{model.id}}</small></span><span class="model-facts">{{facts(model)}}</span><span class="model-owner">{{model.owned_by||''}}</span></label></template>

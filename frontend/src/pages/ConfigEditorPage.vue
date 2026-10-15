@@ -4,7 +4,7 @@
       <div class="config-heading"><div><p class="eyebrow">设置 / 模型与连接</p><h1>连接与模型配置</h1><p>配置提供商、模型能力和辅助服务。</p></div><button type="button" class="btn btn-primary" :disabled="loading" @click="saveConfig"><UiIcon name="save"/>{{loading ? '保存中…' : '保存更改'}}</button></div>
     </header>
 
-    <div v-if="status.message" :class="['config-status', status.type]" role="status"><UiIcon :name="status.type === 'success' ? 'success' : 'activity'"/>{{ status.message }}</div>
+    <ToastNotice :message="status.message" :type="status.type"/>
     <nav class="config-sections" aria-label="配置分类"><button v-for="tab in tabs" :key="tab.id" :class="{active: section === tab.id}" type="button" @click="section = tab.id"><UiIcon :name="tab.icon"/>{{tab.label}}<span v-if="tab.id==='providers'">{{Object.keys(form.providers).length}}</span><span v-if="tab.id==='models'">{{Object.keys(form.models).length}}</span></button></nav>
 
     <form class="config-form" v-content-motion="section" @submit.prevent="saveConfig">

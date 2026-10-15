@@ -59,8 +59,9 @@
         <div class="thread">
           <article v-for="(item, index) in messages" :key="index" :class="['msg', item.role === 'user' ? 'user' : 'agent']">
             <div class="who">{{ item.role === "user" ? "你" : `Shizuku · ${item.model || "agent"}` }}</div>
-            <div class="bubble">{{ item.content }}</div>
-            <div class="message-actions"><button type="button" title="复制消息" @click="copyMessage(item.content)"><UiIcon name="copy" :size="14"/>复制</button><button v-if="item.role === 'user'" type="button" @click="composerText = item.content"><UiIcon name="edit" :size="14"/>重新编辑</button></div>
+            <div v-if="item.role==='user'" class="bubble">{{ item.content }}</div>
+            <MarkdownMessage v-else class="bubble" :content="item.content"/>
+            <div class="message-actions"><button type="button" title="复制消息" @click="copyMessage(item.content)"><UiIcon name="copy" :size="14"/>复制</button><button v-if="item.role === 'user'" type="button" :disabled="appStore.loading || shellPending || reverting" @click="revertConversation(index)"><UiIcon name="back" :size="14"/>回到此处</button></div>
             <details v-if="item.trace && item.trace.length" class="trace">
               <summary>
                 <span class="pill">工具</span>
@@ -75,12 +76,14 @@
             <p>对话、整理知识，或让 Shizuku 帮你完成工作。</p>
             <div class="quick-prompts"><button class="btn" @click="composerText = '帮我梳理一个项目的结构'">分析项目</button><button class="btn" @click="composerText = '帮我整理今天的工作计划'">整理计划</button><button class="btn" @click="composerText = '查找与当前任务相关的记忆'">检索记忆</button></div>
           </div>
-          <p v-if="appStore.loading" class="hint" key="pending">正在处理请求…</p>
+          <ExecutionFeed :thread-id="currentSessionId" :persona="appStore.currentPersona" :active="appStore.loading || queueRunning" :stopping="stopping" @run="executionId=$event"/>
         </div>
       </div>
 
       <div class="composer-wrap">
         <TaskPlan :thread-id="currentSessionId" :persona="appStore.currentPersona" :active="appStore.loading"/>
+        <section v-if="pendingMessages.length" class="message-queue" aria-label="待发送消息"><header>等待回复 · {{pendingMessages.length}} 条</header><div v-for="(entry,index) in pendingMessages" :key="entry.id" class="queue-row"><span class="queue-index">{{index+1}}</span><button type="button" class="queue-text" @click="editQueued(entry.id)">{{entry.text}}</button><button type="button" class="icon-btn" aria-label="移除排队消息" @click="removeQueued(entry.id)"><UiIcon name="delete" :size="14"/></button></div></section>
+        <div class="composer-surface">
         <ApprovalBar :thread-id="currentSessionId" :persona="appStore.currentPersona" :active="appStore.loading || shellPending"/>
         <form class="composer" @submit.prevent="sendMessage">
           <textarea
@@ -104,17 +107,19 @@
             <ComposerPicker v-model="appStore.currentPersona" label="人格" :options="personaPickerOptions" manage="/settings"/>
             <ComposerPicker :model-value="workModeLabel" label="工作模式" :options="[{value:'full',label:'完全控制'},{value:'chat',label:'对话模式'},{value:'sandbox',label:'安全模式'}]" @update:model-value="changeWorkMode"/>
             <span class="spacer"/>
-            <button class="send" type="submit" aria-label="发送" :disabled="appStore.loading || !composerText.trim()"><UiIcon name="arrowUp" :size="19"/></button>
+            <button v-if="(queueRunning || appStore.loading) && !composerText.trim()" class="send stop-button" type="button" aria-label="中止回复" title="中止回复" :disabled="stopping" @click="stopReply"><span class="stop-square"/></button>
+            <button v-else class="send" type="submit" :aria-label="queueRunning?'加入队列':'发送'" :title="queueRunning?'加入队列，当前回复完成后发送':'发送'" :disabled="!composerText.trim() || reverting"><UiIcon name="arrowUp" :size="19"/></button>
           </div>
           <Transition name="popover"><div v-if="commandOpen" class="composer-command-list" role="dialog" aria-label="命令面板" @keydown.esc="commandOpen=false"><input v-model="commandQuery" placeholder="搜索命令" aria-label="搜索命令"/><button v-for="command in filteredCommands" :key="command.name" type="button" @click="executeCommand(command.name)">{{command.name}} · {{command.label}}</button></div></Transition>
           <button v-if="shellMode" class="shell-indicator" type="button" @click="shellMode=false">Shell · 点击退出 / Esc</button>
           <Transition name="popover"><div v-if="composerText === '@'" class="composer-command-list"><button type="button" @click="insertComposer('请检索与当前任务相关的长期记忆：')">长期记忆</button><button type="button" @click="insertComposer('请使用已启用的技能分析以下问题：')">已启用技能</button></div></Transition>
         </form>
+        </div>
         <p class="hint">
           {{ workModeHint }}
           <template v-if="appStore.lastActiveModel"> · 当前模型: {{ appStore.lastActiveModel }}</template>
         </p>
-        <p v-if="interactionError || appStore.statusError" class="notice-error">{{ interactionError || appStore.statusError }}</p>
+        <ToastNotice :message="interactionError || appStore.statusError"/>
       </div>
     </main>
 
@@ -202,10 +207,13 @@ import WorkspacePanel from '../components/WorkspacePanel.vue';
 import SearchField from '../components/SearchField.vue';
 import ApprovalBar from '../components/ApprovalBar.vue';
 import TaskPlan from '../components/TaskPlan.vue';
+import ExecutionFeed from '../components/ExecutionFeed.vue';
+import MarkdownMessage from '../components/MarkdownMessage.vue';
 import {request} from '../store/app';
 import {useRouter} from 'vue-router';
 
 type MessageItem = {
+  id?: string;
   role: "user" | "agent";
   content: string;
   trace?: ChatResponse["trace"];
@@ -282,7 +290,8 @@ const workModeHint = computed(() => {
   if (appStore.workModeEnabled) {
     return "完全控制：可读写工作区与本机工具。Shift+Enter 换行。";
   }
-  return "对话模式：仅对话与检索，文件工具在策略层受限。Shift+Enter 换行。";
+  if(appStore.workMode==='sandbox')return '安全模式：可读取本地目录；写入限沙箱，外部代码执行禁用。Shift+Enter 换行。';
+  return "对话模式：可读取本地目录与文件，不写入、不执行代码。Shift+Enter 换行。";
 });
 
 function loadSessions() {
@@ -310,19 +319,24 @@ function makeSession(title: string, preview: string): SessionItem {
 }
 
 function newSession() {
-  if (appStore.loading) return;
+  if (appStore.loading || queueRunning.value) return;
   currentSessionId.value = "";
   messages.value = [];
   composerText.value = "";
 }
 
-function activateSession(id: string) {
-  if (appStore.loading) return;
+async function activateSession(id: string) {
+  if (appStore.loading || queueRunning.value) return;
   currentSessionId.value = id;
   const session = sessions.value.find((s) => s.id === id);
   if (session) {
     if(session.persona && session.persona !== appStore.currentPersona){appStore.currentPersona=session.persona;return;}
     try { messages.value = JSON.parse(session.preview) as MessageItem[]; } catch { messages.value = []; }
+    try {
+      const data=await request<{messages:{id:string;role:string;content:string}[]}>('/api/workbench/session?'+new URLSearchParams({persona:appStore.currentPersona,thread_id:id}));
+      messages.value=data.messages.map(m=>({id:m.id,role:m.role==='user'?'user':'agent',content:m.content}));
+      session.preview=JSON.stringify(messages.value);persistSessions();
+    } catch(e){interactionError.value=String(e);}
   }
 }
 
@@ -334,17 +348,59 @@ function scrollToBottom() {
   });
 }
 
-async function sendMessage() {
-  const text = composerText.value.trim();
-  if (!text || appStore.loading) {
+const reverting = ref(false);
+async function revertConversation(index:number) {
+  if(reverting.value || appStore.loading || shellPending.value || !currentSessionId.value)return;
+  reverting.value=true;interactionError.value='';
+  try {
+    const target=messages.value[index];
+    if(!target.id){await activateSession(currentSessionId.value);interactionError.value='已重新加载服务器会话，请点击对应消息回退';return;}
+    const data=await request<{draft:string;messages:{id:string;role:string;content:string}[]}>('/api/workbench/session/revert',{method:'POST',body:JSON.stringify({thread_id:currentSessionId.value,persona:appStore.currentPersona,message_id:target.id})});
+    composerText.value=data.draft;
+    messages.value=data.messages.map(m=>({id:m.id,role:m.role==='user'?'user':'agent',content:m.content}));
+    turnDiff.value='';
+    const session=sessions.value.find(s=>s.id===currentSessionId.value);
+    if(session)session.preview=JSON.stringify(messages.value);
+    persistSessions();
+    await nextTick();
+    document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus();
+  } catch(e) {interactionError.value=e instanceof Error?e.message:'回退失败';}
+  finally {reverting.value=false;}
+}
+
+type QueuedMessage={id:string;text:string;thread:string;persona:string;model:string;group:string;effort:string};
+const pendingMessages=ref<QueuedMessage[]>([]),queueRunning=ref(false);
+const executionId=ref(''),stopping=ref(false),queuePaused=ref(false);
+async function stopReply(){queuePaused.value=true;stopping.value=true;try{let id=executionId.value;if(!id){const data=await request<{run_id:string}>('/api/execution?'+new URLSearchParams({thread_id:currentSessionId.value,persona:appStore.currentPersona}));id=data.run_id;}await request('/api/execution/stop',{method:'POST',body:JSON.stringify({thread_id:currentSessionId.value,persona:appStore.currentPersona,run_id:id})});}catch(e){interactionError.value=String(e);}finally{stopping.value=false;}}
+function removeQueued(id:string){pendingMessages.value=pendingMessages.value.filter(entry=>entry.id!==id);}
+function editQueued(id:string){const entry=pendingMessages.value.find(e=>e.id===id);if(!entry)return;if(composerText.value.trim()){interactionError.value='请先发送或清空当前草稿';return;}composerText.value=entry.text;removeQueued(id);composerInput.value?.focus();}
+async function sendMessage(){
+  const text=composerText.value.trim();
+  if(!text||reverting.value)return;
+  if(shellMode.value||text.startsWith('!')||text.startsWith('/')){
+    if(queueRunning.value||appStore.loading){interactionError.value='任务执行期间请排队发送普通消息，命令请在任务结束后使用';return;}
+    await executeMessage();return;
+  }
+  if(!currentSessionId.value){const session=makeSession(text.slice(0,24),'[]');currentSessionId.value=session.id;sessions.value.unshift(session);}
+  pendingMessages.value.push({id:crypto.randomUUID(),text,thread:currentSessionId.value,persona:appStore.currentPersona,model:appStore.currentModelId,group:appStore.currentModelGroup,effort:appStore.reasoningEffort});
+  composerText.value='';
+  if(queueRunning.value)return;
+  queuePaused.value=false;
+  queueRunning.value=true;
+  try{while(pendingMessages.value.length&&!queuePaused.value){const entry=pendingMessages.value.shift()!;await executeMessage(entry);}}finally{queueRunning.value=false;}
+}
+
+async function executeMessage(queued?:QueuedMessage) {
+  const text = queued?.text || composerText.value.trim();
+  if (!text || appStore.loading || reverting.value) {
     return;
   }
   if(text.startsWith('/')){const name=text.split(/\s/)[0];if(commands.some(c=>c.name===name)){await executeCommand(name);}else{interactionError.value='未知命令，请使用 /help';commandOpen.value=true;}return;}
   if(shellMode.value||text.startsWith('!')){if(shellPending.value)return;if(!currentSessionId.value)currentSessionId.value=`shell_${Date.now()}`;shellPending.value=true;try{const command=text.startsWith('!')?text.slice(1).trim():text;const result=await request<{stdout:string;stderr:string;exit_code:number}>('/api/workbench/shell',{method:'POST',body:JSON.stringify({command,thread_id:currentSessionId.value,persona:appStore.currentPersona})});messages.value.push({role:'user',content:'$ '+command},{role:'agent',content:`Shell · exit ${result.exit_code}\n${result.stdout||''}${result.stderr||''}`});composerText.value='';}catch(e){interactionError.value=e instanceof Error?e.message:'Shell 执行失败';}finally{shellPending.value=false;}return;}
   messages.value.push({ role: "user", content: text });
-  composerText.value = "";
+  if(!queued)composerText.value = "";
   scrollToBottom();
-  const requestPersona = appStore.currentPersona;
+  const requestPersona = queued?.persona || appStore.currentPersona;
   try {
     if (!currentSessionId.value) {
       const session = makeSession(text.slice(0, 24), JSON.stringify(messages.value));
@@ -352,7 +408,7 @@ async function sendMessage() {
       sessions.value.unshift(session);
     }
     const before=await request<{diff?:string}>('/api/workbench/changes').catch(()=>({diff:''}));
-    const data = await appStore.chat(text, currentSessionId.value);
+    const data = await appStore.chat(text, queued?.thread || currentSessionId.value, queued?{persona:queued.persona,model_id:queued.model,model_group:queued.group,reasoning_effort:queued.effort}:undefined);
     const after=await request<{diff?:string}>('/api/workbench/changes').catch(()=>({diff:''}));
     turnDiff.value=after.diff!==before.diff?after.diff||'变更已清除':'';
     messages.value.push({
@@ -361,6 +417,9 @@ async function sendMessage() {
       trace: data.trace || [],
       model: data.active_model,
     });
+    if(data.messages?.length){
+      messages.value=data.messages.map((m,index)=>({id:m.id,role:m.role==='user'?'user':'agent',content:m.content,...(index===data.messages!.length-1?{trace:data.trace||[],model:data.active_model}:{})}));
+    }
     if (!currentSessionId.value) {
       const session = makeSession(
         text.slice(0, 24),
@@ -378,7 +437,7 @@ async function sendMessage() {
     persistSessions();
   } catch (error) {
     const err = error instanceof Error ? error.message : "发送失败";
-    messages.value.push({ role: "agent", content: `发送失败: ${err}` });
+    interactionError.value=err;
   }
   scrollToBottom();
 }
@@ -458,7 +517,7 @@ async function refresh() {
 }
 
 watch(messages, scrollToBottom);
-watch(()=>appStore.currentPersona,async(persona)=>{if(appStore.loading)return;try{const data=await request<{messages:{role:string;content:string}[]}>(`/api/workbench/session?persona=${encodeURIComponent(persona)}`);messages.value=(data.messages||[]).map(m=>({role:m.role==='user'?'user':'agent',content:m.content}));currentSessionId.value=`persona:${persona}`;await appStore.loadMemory();}catch(e){interactionError.value=e instanceof Error?e.message:'人格上下文加载失败';}});
+watch(()=>appStore.currentPersona,async(persona)=>{if(appStore.loading)return;try{const thread=currentSessionId.value||`persona:${persona}`;const data=await request<{messages:{id:string;role:string;content:string}[]}>('/api/workbench/session?'+new URLSearchParams({persona,thread_id:thread}));messages.value=(data.messages||[]).map(m=>({id:m.id,role:m.role==='user'?'user':'agent',content:m.content}));currentSessionId.value=thread;await appStore.loadMemory();}catch(e){interactionError.value=e instanceof Error?e.message:'人格上下文加载失败';}});
 
 onMounted(() => {
   document.addEventListener('keydown',globalEscape);
@@ -470,6 +529,9 @@ onMounted(() => {
 });
 </script>
 <style scoped>
+.composer-surface{position:relative;min-width:0;width:100%;}
+.composer-toolbar>.send{flex-shrink:0;background:var(--fg);color:var(--bg);border:1px solid var(--fg);transition:opacity 150ms ease,transform 150ms ease;}.composer-toolbar>.send:hover:not(:disabled){background:var(--fg);color:var(--bg);border-color:var(--fg);opacity:.85;}.composer-toolbar>.send:focus-visible{outline:2px solid var(--accent);outline-offset:3px;}.stop-square{display:block;width:11px;height:11px;border-radius:2px;background:currentColor;}
+.message-queue{border:1px solid var(--border);border-radius:12px;background:var(--bg-raised);padding:8px 10px;margin-bottom:8px;max-height:180px;overflow:auto;}.message-queue header{font-size:11px;color:var(--muted);padding:4px 6px 8px;}.queue-row{display:flex;align-items:center;gap:8px;min-height:32px;}.queue-index{font-size:10px;color:var(--muted);width:16px;text-align:center;}.queue-text{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;padding:5px;border-radius:5px;}.queue-text:hover{background:var(--surface-2);}
 .workspace.with-inspector{display:flex!important;flex-direction:row;align-items:stretch;flex-wrap:nowrap;overflow:hidden;box-sizing:border-box;width:100%;height:100%;gap:0;padding:10px;}
 .workspace.with-inspector>.sessions{display:flex;flex:0 0 var(--session-width,254px);width:var(--session-width,254px);min-width:0;min-height:0;}
 .workspace.with-inspector>.pane-resizer{flex:0 0 6px;width:6px;min-height:0;}

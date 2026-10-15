@@ -58,6 +58,19 @@ class SettingsResourceTests(unittest.TestCase):
             self.assertEqual(400, result.status_code)
             self.assertFalse((self.root / 'escape.txt').exists())
 
+    def test_legacy_persona_markdown_can_be_edited_without_overwriting_source(self):
+        folder = self.root / 'alice'
+        folder.mkdir()
+        (folder / 'persona.json').write_text('{}')
+        (folder / 'SKILL.md').write_text('# Legacy persona', encoding='utf-8')
+        with patch.object(resources, 'PERSONAS_DIR', self.root), patch.object(resources, 'ensure_personas'):
+            params = {'kind': 'persona', 'key': 'alice', 'filename': 'PERSONA.md'}
+            result = self.client.get('/api/settings-resources/document', params=params)
+            self.assertEqual('# Legacy persona', result.json()['content'])
+            self.assertEqual(200, self.client.put('/api/settings-resources/document', json={**params, 'content': '# Updated'}).status_code)
+            self.assertEqual('# Updated', (folder / 'PERSONA.md').read_text())
+            self.assertEqual('# Legacy persona', (folder / 'SKILL.md').read_text())
+
     def test_mcp_edit_and_delete_survive_reload(self):
         folder = self.root / 'mcp'
         folder.mkdir()

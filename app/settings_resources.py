@@ -45,6 +45,10 @@ def document_path(kind: str, key: str, filename: str) -> Path:
 def read_document(kind: str, key: str = '', filename: str = 'persona.json'):
     path = document_path(kind, key, filename)
     if not path.is_file():
+        if kind == 'persona' and filename == 'PERSONA.md' and (path.parent / 'persona.json').is_file():
+            legacy = path.parent / 'SKILL.md'
+            content = legacy.read_text(encoding='utf-8') if legacy.is_file() else f'# {key}\n\n人格说明。人设与提示词保存在 persona.json。\n'
+            return {'success': True, 'content': content, 'name': filename}
         raise HTTPException(404, '文件不存在')
     return {'success': True, 'content': path.read_text(encoding='utf-8'), 'name': path.name}
 

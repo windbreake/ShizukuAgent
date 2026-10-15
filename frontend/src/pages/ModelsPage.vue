@@ -18,7 +18,7 @@
       <div class="settings-list"><div v-for="[id,group] in groups" :key="id" class="setting-record"><span class="provider-mark"><UiIcon name="models" :size="20"/></span><div class="record-main"><strong>{{group.name||id}}</strong><span class="record-url">{{(group.models||[]).map(modelName).join('、')||'暂无成员'}}</span><span class="record-note">{{group.models?.length||0}} 个成员 · {{group.strategy||'fallback'}}</span></div><RouterLink class="btn btn-ghost" to="/config-editor?section=groups"><UiIcon name="edit"/>编辑</RouterLink></div><p v-if="!groups.length" class="empty-settings">没有匹配的分组。</p></div>
     </template>
     </div>
-    <p v-if="appStore.statusError" class="notice-error">{{appStore.statusError}}</p>
+    <ToastNotice :message="appStore.statusError"/>
     <p v-if="discoveryStatus" class="discovery-status" role="status">{{discoveryStatus}}</p>
     <footer class="settings-tip"><UiIcon name="security"/>密钥保存在本地配置中；状态标记仅表示已配置凭据，实际可用性以调用结果为准。</footer>
   </section>

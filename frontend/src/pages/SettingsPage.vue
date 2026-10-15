@@ -2,7 +2,7 @@
   <div class="runtime-settings settings-redesign">
     <header><p class="kicker">Settings</p><h1>设置</h1><p class="hint">管理连接、技能、人格和语音资源。</p></header>
     <nav class="section-tabs" aria-label="设置分类"><button v-for="item in categories" :key="item.id" :class="{active:category===item.id}" @click="category=item.id"><UiIcon :name="item.icon"/>{{item.label}}</button></nav>
-    <p v-if="message" :class="failed?'notice-error':'settings-feedback'" role="status">{{message}}</p>
+    <ToastNotice :message="message" :type="failed?'error':'success'"/>
     <div class="settings-grid" v-content-motion="category">
       <SettingSection v-show="show('mcp')" title="MCP 服务器" icon="mcp" :count="appStore.mcpServers.length">
         <p>编辑连接配置或直接修改 servers.json，保存后重新加载。</p>
@@ -11,9 +11,9 @@
           <div class="row-label"><strong><UiIcon name="mcp"/> {{server.name}}</strong><small>{{server.type}} · {{server.id}}</small></div>
           <div class="row-actions"><button class="switch" role="switch" :aria-label="`启用 ${server.name}`" :aria-checked="Boolean(server.enabled)" @click="perform(async()=>{await request(`/api/systems/mcp/servers/${encodeURIComponent(server.id!)}`,{method:'PUT',body:JSON.stringify({enabled:!server.enabled})});await appStore.loadStatus();})"/><button class="icon-btn" :aria-label="`编辑 ${server.name}`" @click="editMcp(server.id!)"><UiIcon name="edit"/></button><button class="icon-btn" :aria-label="`删除 ${server.name}`" @click="removeMcp(server.id!)"><UiIcon name="delete"/></button></div>
         </div>
-        <details class="inline-editor" :open="mcpEditing" @toggle="mcpEditing=($event.target as HTMLDetailsElement).open"><summary><UiIcon name="plus"/>{{mcpId?'编辑连接':'新增服务器'}}</summary>
+        <SettingsDialog :visible="mcpEditing" :title="mcpId?'编辑 MCP 服务器':'新增 MCP 服务器'" @close="mcpEditing=false">
           <form @submit.prevent="saveMcp"><label class="field">ID<input v-model="mcpForm.id" required :disabled="Boolean(mcpId)"/></label><label class="field">名称<input v-model="mcpForm.name" required/></label><label class="field">类型<select v-model="mcpForm.type"><option value="stdio">stdio</option><option value="http">http</option><option value="internal">internal</option></select></label><template v-if="mcpForm.type==='stdio'"><label class="field">命令<input v-model="mcpForm.command" required/></label><label class="field">参数（JSON 数组）<textarea v-model="mcpArgs" rows="2"/></label></template><label v-if="mcpForm.type==='http'" class="field">URL<input v-model="mcpForm.url" type="url" required/></label><label class="field">请求头（JSON 对象）<textarea v-model="mcpHeaders" rows="3"/></label><button class="btn btn-primary" :disabled="busy"><UiIcon name="save"/>保存服务器</button></form>
-        </details>
+        </SettingsDialog>
       </SettingSection>
 
       <SettingSection v-show="show('skills')" title="技能策略" icon="skills" :count="appStore.skills.length">
@@ -25,7 +25,8 @@
       <SettingSection v-show="show('personas')" title="人格" icon="bot" :count="personas.length">
         <p>persona.json 保存人设与提示词，PERSONA.md 保存人格说明。</p>
         <div v-for="persona in personas" :key="persona.filename" class="setting-row"><div class="row-label"><strong>{{persona.name}}</strong><small>{{persona.filename}}</small></div><div class="row-actions"><button class="btn" @click="edit('persona',persona.filename.replace(/\.json$/,''),'persona.json')"><UiIcon name="edit"/>JSON</button><button class="btn" @click="edit('persona',persona.filename.replace(/\.json$/,''),'PERSONA.md')"><UiIcon name="logs"/>MD</button><button class="btn" :disabled="persona.is_active" @click="activate(persona.filename)">{{persona.is_active?'当前人格':'激活'}}</button></div></div>
-        <details class="inline-editor"><summary><UiIcon name="plus"/>创建人格</summary><form @submit.prevent="createPersona"><label class="field">标识<input v-model="personaId" required pattern="[A-Za-z0-9_-]+" placeholder="my-persona"/></label><label class="field">名称<input v-model="personaName" required/></label><label class="field">性格与描述<textarea v-model="personaDescription" rows="3"/></label><button class="btn btn-primary" :disabled="busy"><UiIcon name="plus"/>创建并编辑 JSON</button></form></details>
+        <button class="btn" @click="personaCreating=true"><UiIcon name="plus"/>创建人格</button>
+        <SettingsDialog :visible="personaCreating" title="创建人格" @close="personaCreating=false"><form @submit.prevent="createPersona"><label class="field">标识<input v-model="personaId" required pattern="[A-Za-z0-9_-]+" placeholder="my-persona"/></label><label class="field">名称<input v-model="personaName" required/></label><label class="field">性格与描述<textarea v-model="personaDescription" rows="3"/></label><p v-if="failed" class="notice-error">{{message}}</p><footer><button type="button" class="btn" @click="personaCreating=false">取消</button><button class="btn btn-primary" :disabled="busy"><UiIcon name="plus"/>创建并编辑 JSON</button></footer></form></SettingsDialog>
       </SettingSection>
 
       <SettingSection v-show="show('permissions')" title="工作模式" icon="security">
@@ -51,22 +52,26 @@
   </div>
 </template>
 <script setup lang="ts">
-import {onMounted,ref} from 'vue';
+import {onMounted,ref,watch} from 'vue';
+import {notify} from '../store/notifications';
 import {zipSync} from 'fflate';
 import {useAppStore,request} from '../store/app';
 import SettingSection from '../components/SettingSection.vue';
 import ResourceEditor from '../components/ResourceEditor.vue';
 import ConfirmModal from '../components/ConfirmModal.vue';
+import SettingsDialog from '../components/SettingsDialog.vue';
 import {vContentMotion} from '../directives/contentMotion';
 const appStore=useAppStore(),category=ref('mcp'),busy=ref(false),failed=ref(false),message=ref('');
+watch(message,value=>{if(value){notify(value,failed.value?'error':'success');message.value='';}});
 const categories=[{id:'all',label:'全部设置',icon:'settings'},{id:'mcp',label:'MCP 集成',icon:'mcp'},{id:'skills',label:'技能',icon:'skills'},{id:'personas',label:'人格',icon:'bot'},{id:'permissions',label:'权限与执行',icon:'security'},{id:'plugins',label:'插件',icon:'plugins'},{id:'media',label:'语音资源',icon:'voice'}];
 const show=(id:string)=>category.value==='all'||category.value===id;
 const resource=ref<{kind:string;key:string;filename:string}|null>(null);
 function edit(kind:string,key:string,filename:string){resource.value={kind,key,filename};}
 async function perform(action:()=>Promise<unknown>){if(busy.value)return;busy.value=true;failed.value=false;message.value='';try{await action();}catch(e){failed.value=true;message.value=e instanceof Error?e.message:String(e);}finally{busy.value=false;}}
 const personas=ref<{filename:string;name:string;is_active:boolean}[]>([]),personaId=ref(''),personaName=ref(''),personaDescription=ref('');
+const personaCreating=ref(false);
 async function loadPersonas(){const data=await request<{personas:typeof personas.value}>('/api/personas');personas.value=data.personas||[];}
-function createPersona(){return perform(async()=>{if(personas.value.some(p=>p.filename===personaId.value+'.json'))throw new Error('人格标识已存在');await request('/api/personas',{method:'POST',body:JSON.stringify({filename:personaId.value+'.json',content:{meta:{name:personaName.value,description:personaDescription.value},character:{name:personaName.value,personality:personaDescription.value},system_prompt:{template:'你是{name}，性格是{personality}。'}}})});await loadPersonas();edit('persona',personaId.value,'persona.json');});}
+function createPersona(){return perform(async()=>{if(personas.value.some(p=>p.filename===personaId.value+'.json'))throw new Error('人格标识已存在');await request('/api/personas',{method:'POST',body:JSON.stringify({filename:personaId.value+'.json',content:{meta:{name:personaName.value,description:personaDescription.value},character:{name:personaName.value,personality:personaDescription.value},system_prompt:{template:'你是{name}，性格是{personality}。'}}})});await loadPersonas();personaCreating.value=false;edit('persona',personaId.value,'persona.json');});}
 function activate(filename:string){return perform(async()=>{await request('/api/personas/activate',{method:'POST',body:JSON.stringify({filename})});appStore.currentPersona=filename.replace(/\.json$/,'');await loadPersonas();});}
 const mcpId=ref(''),mcpEditing=ref(false),mcpArgs=ref('[]'),mcpHeaders=ref('{}'),mcpForm=ref({id:'',name:'',type:'stdio',command:'',url:''}),deletingMcp=ref('');
 function newMcp(){mcpId.value='';mcpForm.value={id:'',name:'',type:'stdio',command:'',url:''};mcpArgs.value='[]';mcpHeaders.value='{}';mcpEditing.value=true;}

@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any
 from time import perf_counter
 import logging
+import uuid
+import sys
+from app import session_history
 
 from app.agent.llm import _content_to_text
 from app.observability import get_observability_manager
@@ -36,10 +39,15 @@ class AgentHarness:
             attachments: list[dict[str, Any]] | None = None, model_id: str | None = None,
             reasoning_effort: str = 'default') -> dict[str, Any]:
         from app.task_plans import execution
+        from app.execution import running, Stopped, event
         current = persona_id(persona) if persona else self.graph.default_persona()
         thread = thread_id or f'persona:{current}'
-        with execution(thread, current):
-            return self._run(message, current, thread, model_group, image, attachments, model_id, reasoning_effort)
+        with execution(thread, current), running(thread,current):
+            try:
+                event('status','正在检索上下文')
+                return self._run(message, current, thread, model_group, image, attachments, model_id, reasoning_effort)
+            except Stopped:
+                return {'success':True,'reply':'已中止本轮回复','persona':current,'thread_id':thread,'engine':'stopped','trace':[],'messages':self.get_history(thread,current),'stopped':True}
 
     def _run(
         self,
@@ -56,10 +64,11 @@ class AgentHarness:
         timings = {}
         current = persona_id(persona) if persona else self.graph.default_persona()
         thread = thread_id or f"persona:{current}"
-        checkpoint = self.storage.load_checkpoint(thread, current) or {"messages": []}
-        history = [_sanitize_history(item) for item in checkpoint.get("messages") or []]
+        checkpoint = session_history.load(self.storage, thread, current)
+        history = [_sanitize_history(item) for item in session_history.visible(checkpoint)]
         user_content = _compose_user_content(message, image, attachments)
-        history.append({"role": "user", "content": user_content})
+        history.append({'id': uuid.uuid4().hex, "role": "user", "content": user_content})
+        self.storage.save_checkpoint(thread, current, {'messages': history})
 
         timings['history_ms'] = round((perf_counter() - started) * 1000, 1)
         stage = perf_counter()
@@ -71,8 +80,9 @@ class AgentHarness:
                             if model_id else self.dependencies.model_registry.resolve_agent_group(model_group))
         work = self.dependencies.settings.get('work_mode') or {}
         mode = 'full' if work.get('enabled') else 'sandbox' if work.get('sandbox_enabled') else 'chat'
-        model_candidates = [{**candidate, "reasoning_effort": reasoning_effort, "workbench_mode": mode} for candidate in model_candidates]
-        graph_messages = [{"role": "system", "content": system_prompt}, *history[-12:]]
+        budget = (self.dependencies.settings.get('agent') or {}).get('max_tool_rounds', 0)
+        model_candidates = [{**candidate, 'max_tool_rounds': budget, "reasoning_effort": reasoning_effort, "workbench_mode": mode} for candidate in model_candidates]
+        graph_messages = [{"role": "system", "content": system_prompt}, *[{k:v for k,v in m.items() if k != 'id'} for m in history[-12:]]]
         stage = perf_counter()
         result = self.graph.graph.invoke(
             {
@@ -91,10 +101,12 @@ class AgentHarness:
                 "active_model": model_candidates[0]["id"],
                 "rag_context": "",
             },
-            config={**get_observability_manager().invoke_config(thread, current), 'recursion_limit': 100},
+            config={**get_observability_manager().invoke_config(thread, current), 'recursion_limit': sys.maxsize},
         )
 
         timings['graph_ms'] = round((perf_counter() - stage) * 1000, 1)
+        from app.execution import check
+        check()
         reply = result.get("reply") or "模型未返回内容。"
         stage = perf_counter()
         self._persist(thread, current, history, message, user_content, reply)
@@ -112,6 +124,7 @@ class AgentHarness:
             "thread_id": thread,
             "work_mode": mode,
             "timings": timings,
+            "messages": self.get_history(thread, current),
         }
 
     def _persist(
@@ -126,7 +139,7 @@ class AgentHarness:
         """Persist session state. Persistence failures are degraded, not fatal:
         the generated reply should still reach the caller."""
         try:
-            persisted_history = [*history, {"role": "assistant", "content": reply}][-40:]
+            persisted_history = [*history, {'id': uuid.uuid4().hex, "role": "assistant", "content": reply}]
             self.storage.save_checkpoint(thread, persona, {"messages": persisted_history})
             if thread != f'persona:{persona}':
                 self.storage.save_checkpoint(f'persona:{persona}', persona, {"messages": persisted_history})
@@ -144,18 +157,21 @@ class AgentHarness:
 
     def get_history(self, thread_id: str, persona: str | None = None) -> list[dict[str, Any]]:
         current = persona or self.graph.default_persona()
-        checkpoint = self.storage.load_checkpoint(thread_id, current) or {"messages": []}
-        return [_sanitize_history(item) for item in checkpoint.get("messages") or []]
+        checkpoint = session_history.load(self.storage, thread_id, current)
+        return [_sanitize_history(item) for item in session_history.visible(checkpoint)]
 
     def _system_prompt(self, persona: str, memory_text: str) -> str:
         persona_data = load_persona(f"{persona}.json") or {}
         prompt = build_system_prompt(persona_data)
         work = self.dependencies.settings.get("work_mode") or {}
-        mode = "允许执行文件与工具操作，但仍按当前人格说话。" if work.get("enabled") else "不要执行危险系统操作，以当前人格正常聊天。"
+        mode = ('完全控制：可以执行工具，外部写入与执行按审批处理。' if work.get('enabled') else
+                '安全模式：可以读取任意本地路径，包括工作区外的绝对路径；仅允许写入沙箱工作区，禁止未隔离的外部代码执行。' if work.get('sandbox_enabled') else
+                '对话/规划模式：可以列目录和读取任意本地路径，包括工作区外的绝对路径；禁止写文件、执行代码或调用会执行代码的技能/MCP。')
         return (
             f"{prompt}\n\n[工作模式]\n{mode}\n\n[长期记忆]\n{memory_text}\n\n"
             "你是 LangGraph 工具型 Agent。需要外部信息时先调用工具，再根据工具结果回答。"
             f"{IMAGE_HINT}"
+            '\n收到本地路径时，使用 list_dir/read_file 实际读取后再回答；不能因为路径在工作区外就声称无法读取。人格风格必须遵循上方人设，工作模式不会切换人格。'
             "\n[任务计划]\n多步骤执行任务开始时使用 todowrite 创建具体任务列表，"
             "只将当前步骤标为 in_progress，每完成一个步骤就更新。验证后才标为 completed。"
             "中断或失败时保留未完成状态，不要虚报完成；简单问答不需要计划。"

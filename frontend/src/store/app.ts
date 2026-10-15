@@ -64,6 +64,7 @@ export type McpServer = {
 };
 
 export type ChatResponse = {
+  messages?: {id:string;role:string;content:string}[];
   success: boolean;
   persona: string;
   reply: string;
@@ -85,11 +86,11 @@ export const useAppStore = defineStore("app", {
     apiBase: API_BASE || "/",
     counter: 0,
     personas: [] as Persona[],
-    currentPersona: "shizuku",
+    currentPersona: localStorage.getItem('sc-persona') || "",
     modelGroups: {} as Record<string, ModelGroup>,
     currentModelGroup: "default",
-    currentModelId: "",
-    reasoningEffort: "default",
+    currentModelId: localStorage.getItem('sc-model-id') || "",
+    reasoningEffort: localStorage.getItem('sc-reasoning-effort') || "default",
     workMode: "chat",
     models: [] as Array<Record<string, unknown>>,
     providers: {} as Record<string, Record<string, unknown>>,
@@ -179,7 +180,7 @@ export const useAppStore = defineStore("app", {
       this.workModeEnabled = mode === 'full';
       return data;
     },
-    async chat(message: string, threadId?: string) {
+    async chat(message: string, threadId?: string, options?:{persona:string;model_id:string;model_group:string;reasoning_effort:string}) {
       this.loading = true;
       try {
         const data = await request<ChatResponse>("/api/chat", {
@@ -191,6 +192,7 @@ export const useAppStore = defineStore("app", {
             model_id: this.currentModelId || undefined,
             reasoning_effort: this.reasoningEffort,
             thread_id: threadId,
+            ...options,
           }),
         });
         this.lastReply = data.reply;

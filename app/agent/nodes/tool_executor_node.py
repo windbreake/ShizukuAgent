@@ -9,6 +9,8 @@ from app.approvals import ask, grant, scope
 from app.agent import tools
 from pathlib import Path
 from time import perf_counter
+from app.execution import check, event
+from app.agent.permissions import allowed
 
 
 class ToolExecutorNode:
@@ -24,10 +26,12 @@ class ToolExecutorNode:
         traces = list(state["traces"])
         tool_result = list(state["tool_result"])
         for call in latest.get("tool_calls") or []:
+            check()
             started = perf_counter()
             function = call.get("function") or {}
             name = str(function.get("name") or "")
             call_id = str(call.get("id") or f"{name}-{len(messages)}")
+            event('tool',name,call_id=call_id,arguments=function.get('arguments') or '{}',status='running')
             validation_error = function.get("_validation_error")
             try:
                 args = parse_tool_arguments(function.get("arguments"))
@@ -35,17 +39,20 @@ class ToolExecutorNode:
                 if validation_error:
                     raise ValueError(validation_error)
                 mode = (state.get('model_config') or {}).get('workbench_mode')
-                if mode == 'chat' and name not in {'search_memory','add_memory','use_auxiliary_model','todowrite','todoread'}:
-                    result = {'ok': False, 'error': {'type':'permission_denied','message':'对话模式未分配该工具'}}
-                elif mode == 'sandbox' and name == 'run_local_agent':
-                    result = {'ok': False, 'error': {'type':'permission_denied','message':'安全模式不允许调用本机智能体'}}
+                if not allowed(name, mode):
+                    result = {'ok': False, 'error': {'type':'permission_denied','message':'当前模式不允许执行此工具；对话模式只读，安全模式禁止未隔离的外部代码执行'}}
                 elif not self.registry.contains(name):
                     result = {"ok": False, "error": {"type": "unknown_tool", "message": f"未知工具: {name}"}}
                 else:
                     approved=None
-                    if scope.get() and name in {'read_file','list_dir','write_file'}:
+                    if name in {'read_file','list_dir'}:
+                        target=(tools.WORKSPACE / str(args.get('path') or '.')).resolve()
+                        approved=grant.set(str(target))
+                    if name == 'write_file':
                         target=(tools.WORKSPACE / str(args.get('path') or '.')).resolve()
                         if not target.is_relative_to(tools.WORKSPACE.resolve()):
+                            if mode == 'sandbox':
+                                raise ValueError('安全模式只能修改沙箱工作区内的文件')
                             ask('external_directory',str(target));approved=grant.set(str(target))
                     if scope.get() and name in {'run_local_agent','call_mcp','run_skill'}:
                         ask('tool_execution',name+' '+str(args)[:2000])
@@ -70,6 +77,7 @@ class ToolExecutorNode:
                 error = result.get("error") or {}
                 tool_text = f"工具执行失败 [{error.get('type', 'unknown')}]: {error.get('message', '未知错误')}"
             traces.append({"tool": name, "call_id": call_id, "args": args, "ok": result.get("ok", False), "result": tool_text[:500], "elapsed_ms": round((perf_counter() - started) * 1000, 1)})
+            event('tool',name,call_id=call_id,arguments=function.get('arguments') or '{}',status='completed' if result.get('ok') else 'error',result=tool_text[:12000])
             tool_result.append(tool_text)
             messages.append(
                 {

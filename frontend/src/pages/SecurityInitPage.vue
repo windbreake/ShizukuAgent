@@ -7,9 +7,7 @@
           <p>分别配置工作模式和全局管理的验证密码。</p>
         </header>
 
-        <div v-if="status.message" :class="['security-status', status.type]">
-          {{ status.message }}
-        </div>
+        <ToastNotice :message="status.message" :type="status.type"/>
 
         <form class="security-form" @submit.prevent="submitForm">
           <section>

@@ -6,6 +6,35 @@ from app.agent.nodes.model_node import ModelNode
 
 
 class AgentLatencyTests(unittest.TestCase):
+    def test_zero_budget_allows_more_than_one_hundred_rounds(self):
+        from app.agent.nodes.router_node import RouterNode
+        candidate={'id':'working','max_tool_rounds':0}
+        state={'tool_rounds':10001,'messages':[],'model_candidates':[candidate],'active_model':'working','model_config':candidate}
+        captured=[]
+        def gateway(messages, model):
+            captured.append(model)
+            return {'role':'assistant','content':'','tool_calls':[{'id':'next','function':{'name':'search_memory','arguments':'{}'}}]}
+        result=ModelNode(gateway=gateway)(state)
+        self.assertTrue(captured[0]['tools'])
+        self.assertEqual('tools',RouterNode().route({**state,**result}))
+
+    def test_more_than_six_rounds_allowed_and_budget_generates_summary(self):
+        requests=[]
+        def gateway(messages, model):
+            requests.append((messages,model))
+            return {'role':'assistant','content':'已检查项目结构，尚未检查部署。'}
+        candidate={'id':'working','max_tool_rounds':100}
+        state={'tool_rounds':7,'messages':[],'model_candidates':[candidate],
+               'active_model':'working','model_config':candidate}
+        node=ModelNode(gateway=gateway)
+        self.assertEqual('respond',node(state)['intent'])
+        self.assertNotEqual([],requests[-1][1]['tools'])
+        state['tool_rounds']=100
+        result=node(state)
+        self.assertEqual([],requests[-1][1]['tools'])
+        self.assertIn('预算',requests[-1][0][-1]['content'])
+        self.assertIn('已检查',result['reply'])
+
     def test_tool_round_starts_with_last_successful_model(self):
         calls = []
 

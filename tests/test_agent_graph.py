@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from app.agent.agent_graph import AgentGraph
 from app.agent.agent_service import AgentService
@@ -97,7 +97,7 @@ class AgentGraphTests(unittest.TestCase):
         storage = FakeStorage()
         agent = AgentGraph(
             storage=storage,
-            model_gateway=lambda messages, model: {
+            model_gateway=Mock(side_effect=[{
                 "role": "assistant",
                 "content": "已查询",
                 "tool_calls": [
@@ -107,7 +107,7 @@ class AgentGraphTests(unittest.TestCase):
                         "function": {"name": "search_memory", "arguments": '{"query":"测试"}'},
                     }
                 ],
-            },
+            }, {'role':'assistant','content':'查询完成'}]),
         )
 
         with patch("app.agent.tools.run_tool", wraps=__import__(
@@ -121,7 +121,7 @@ class AgentGraphTests(unittest.TestCase):
         storage = FakeStorage()
         agent = AgentGraph(
             storage=storage,
-            model_gateway=lambda messages, model: {
+            model_gateway=Mock(side_effect=[{
                 "role": "assistant",
                 "content": "",
                 "tool_calls": [
@@ -131,7 +131,7 @@ class AgentGraphTests(unittest.TestCase):
                         "function": {"name": "list_dir", "arguments": "not-json"},
                     }
                 ],
-            },
+            }, {'role':'assistant','content':'参数错误'}]),
         )
 
         with patch("app.agent.tools.run_tool") as mocked_tool:

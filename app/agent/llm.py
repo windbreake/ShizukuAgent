@@ -34,6 +34,25 @@ class OpenAICompatibleClient(LLMClient):
             extra = {}
             if model_config.get("reasoning_effort") in {"low", "medium", "high"}:
                 extra["reasoning_effort"] = model_config["reasoning_effort"]
+            from app.execution import current, check, delta
+            if current.get() is not None:
+                content='';calls={}
+                stream=client.chat.completions.create(model=model_config.get('model') or 'gpt-4o-mini',messages=messages,tools=model_config.get('tools',OPENAI_TOOLS),temperature=.4,stream=True,**extra)
+                try:
+                    for chunk in stream:
+                        check()
+                        if not chunk.choices:continue
+                        part=chunk.choices[0].delta
+                        if part.content:
+                            content+=part.content;delta(part.content)
+                        for call in part.tool_calls or []:
+                            item=calls.setdefault(call.index,{'id':'','type':'function','function':{'name':'','arguments':''}})
+                            if call.id:item['id']=call.id
+                            if call.function:
+                                if call.function.name:item['function']['name']+=call.function.name
+                                if call.function.arguments:item['function']['arguments']+=call.function.arguments
+                finally:stream.close()
+                return {'role':'assistant','content':content,'tool_calls':[calls[index] for index in sorted(calls)]}
             completion = client.chat.completions.create(
                 model=model_config.get("model") or "gpt-4o-mini",
                 messages=messages,

@@ -2,7 +2,7 @@
   <section class="db-page">
     <header><p class="kicker">设置 / 存储</p><h1><UiIcon name="database" :size="24"/>对话记录与存储</h1><p class="hint">按人格独立查看聊天记录，每页 20 条。</p></header>
     <div class="records-toolbar"><SearchField v-model="query" placeholder="搜索消息或角色"/><button class="btn" :disabled="loading" @click="refresh"><UiIcon name="refresh"/>刷新记录</button></div>
-    <p v-if="error" role="alert" class="notice-error">{{error}}</p>
+    <ToastNotice :message="error"/>
     <p v-if="!groups.length&&!loading" class="hint">暂无人格记录。</p>
     <details v-for="group in groups" :key="group.persona" class="persona-records" @toggle="onToggle(group.persona,$event)">
       <summary><UiIcon name="bot"/><strong>{{group.name}}</strong><span>{{group.total}} 条</span><UiIcon name="chevron"/></summary>

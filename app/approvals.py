@@ -31,7 +31,12 @@ def ask(kind,detail,choices=None):
         record={'id':request_id,'thread_id':session[0],'persona':session[1],'kind':kind,'detail':detail,'choices':choices or [],'created_at':time.time(),'event':threading.Event(),'decision':None,'selected':None}
         pending[request_id]=record
     try:
-        if not record['event'].wait(300):raise ApprovalDenied('审批等待超时，本轮已停止')
+        from app.execution import check
+        deadline=time.monotonic()+300
+        while not record['event'].wait(.1):
+            check()
+            if time.monotonic()>=deadline:raise ApprovalDenied('审批等待超时，本轮已停止')
+        check()
         if record['decision']=='reject':raise ApprovalDenied('用户拒绝操作，本轮已停止')
         return record['selected']
     finally:

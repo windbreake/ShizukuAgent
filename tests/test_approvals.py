@@ -34,7 +34,7 @@ class ApprovalTests(unittest.TestCase):
     def test_reject_terminates(self):self.assertEqual(['denied'],self.execute_question('reject'))
     def test_user_selects_auxiliary(self):self.assertEqual(['model-b'],self.execute_question('once',[{'id':'model-a','name':'A'},{'id':'model-b','name':'B'}]))
 
-    def test_external_read_waits_then_runs_with_scoped_grant(self):
+    def test_external_read_is_allowed_in_chat_and_sandbox_without_approval(self):
         import tempfile
         from pathlib import Path
         from unittest.mock import patch
@@ -47,12 +47,18 @@ class ApprovalTests(unittest.TestCase):
             def execute():
                 with session_scope(thread_id,'shizuku'):result.append(ToolExecutorNode()(state))
             with patch('app.agent.tools.WORKSPACE',root):
-                thread=threading.Thread(target=execute);thread.start();client=TestClient(app)
-                for _ in range(100):
-                    items=client.get('/api/approvals',params={'thread_id':thread_id,'persona':'shizuku'}).json()['items']
-                    if items:break
-                    time.sleep(.01)
-                self.assertTrue(items);self.assertFalse(result)
-                client.post('/api/approvals/'+items[0]['id'],json={'thread_id':thread_id,'persona':'shizuku','decision':'once'})
-                thread.join(3);self.assertFalse(thread.is_alive())
-                self.assertEqual('approved content',result[0]['messages'][0]['content'])
+                for mode in ['chat','sandbox']:
+                    state['model_config']['workbench_mode']=mode
+                    execute()
+                    self.assertEqual('approved content',result[-1]['messages'][0]['content'])
+                    self.assertEqual([],TestClient(app).get('/api/approvals',params={'thread_id':thread_id,'persona':'shizuku'}).json()['items'])
+
+    def test_mode_policy_blocks_unisolated_execution(self):
+        from app.agent.permissions import allowed
+        for mode in ['chat','sandbox']:
+            self.assertTrue(allowed('read_file',mode))
+            self.assertTrue(allowed('list_dir',mode))
+            for name in ['run_skill','call_mcp','run_local_agent']:
+                self.assertFalse(allowed(name,mode))
+        self.assertFalse(allowed('write_file','chat'))
+        self.assertTrue(allowed('write_file','sandbox'))

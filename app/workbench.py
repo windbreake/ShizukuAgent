@@ -27,13 +27,54 @@ class Session(BaseModel):
     persona: str
 
 
+class RevertSession(Session):
+    message_id: str
+
+
+@router.post('/session/revert')
+def revert_session(body: RevertSession):
+    from app.agent.agent_service import get_agent_service
+    from app.persona_store import persona_id
+    from app.task_plans import lock, active_sessions, persist
+    current = persona_id(body.persona)
+    with lock:
+        if (body.thread_id, current) in active_sessions:
+            return JSONResponse({'success': False, 'error': '请等待当前任务结束后再回退'}, status_code=409)
+        service = get_agent_service()
+        from app import session_history
+        try:
+            draft, messages = session_history.revert(service.harness.storage, body.thread_id, current, body.message_id)
+        except ValueError as exc:
+            return JSONResponse({'success': False, 'error': str(exc)}, status_code=404)
+        persist(body.thread_id, current, {'items': [], 'running': False, 'run_id': ''})
+        return {'success': True, 'draft': draft, 'messages': messages}
+
+
 @router.get('/session')
-def session(persona: str):
+def session(persona: str, thread_id: str | None = None):
     from app.agent.agent_service import get_agent_service
     from app.persona_store import persona_id
     current = persona_id(persona)
     service = get_agent_service()
-    return {'success': True, 'messages': service.harness.get_history(f'persona:{current}', current)}
+    thread = thread_id or f'persona:{current}'
+    return {'success': True, 'thread_id': thread, 'messages': service.harness.get_history(thread, current)}
+
+
+@router.post('/session/unrevert')
+def unrevert_session(body: Session):
+    from app.agent.agent_service import get_agent_service
+    from app.persona_store import persona_id
+    from app import session_history
+    from app.task_plans import lock, active_sessions
+    current = persona_id(body.persona)
+    with lock:
+        if (body.thread_id, current) in active_sessions:
+            return JSONResponse({'success': False, 'error': '当前任务正在执行'}, status_code=409)
+        storage = get_agent_service().harness.storage
+        checkpoint = session_history.load(storage, body.thread_id, current)
+        checkpoint.pop('revert', None)
+        storage.save_checkpoint(body.thread_id, current, checkpoint)
+        return {'success': True, 'messages': checkpoint.get('messages', [])}
 
 
 @router.post('/session/reset')

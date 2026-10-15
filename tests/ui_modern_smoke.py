@@ -136,6 +136,40 @@ with sync_playwright() as p:
     page.locator('.composer textarea').fill('界面连通性测试')
     page.get_by_role('button',name='发送',exact=True).click()
     page.locator('.bubble').filter(has_text='测试回复：请求已正确连接。').wait_for()
+    held=[]
+    def hold_chat(route): held.append(route)
+    page.route('**/api/chat',hold_chat)
+    page.locator('.composer textarea').fill('队列第一条')
+    page.get_by_role('button',name='发送',exact=True).click()
+    page.wait_for_timeout(200)
+    assert page.locator('.composer-toolbar>.send').count()==1
+    stop=page.get_by_role('button',name='中止回复',exact=True)
+    stop.wait_for()
+    before_hover=stop.evaluate('(el)=>getComputedStyle(el).backgroundColor')
+    stop.hover()
+    assert stop.evaluate('(el)=>getComputedStyle(el).backgroundColor')==before_hover
+    page.locator('.composer textarea').fill('队列第二条')
+    assert page.locator('.composer-toolbar>.send').count()==1
+    assert page.get_by_role('button',name='中止回复',exact=True).count()==0
+    page.get_by_role('button',name='加入队列',exact=True).click()
+    page.locator('.queue-text').filter(has_text='队列第二条').wait_for()
+    assert len(held)==1
+    page.locator('.composer textarea').fill('保留未发送草稿')
+    held[0].fulfill(status=200,content_type='application/json',body=json.dumps({'success':True,'reply':'第一条完成','trace':[]}))
+    page.wait_for_timeout(300)
+    assert len(held)==2
+    assert held[1].request.post_data_json['message']=='队列第二条'
+    assert page.locator('.composer textarea').input_value()=='保留未发送草稿'
+    held[1].fulfill(status=200,content_type='application/json',body=json.dumps({'success':True,'reply':'第二条完成','trace':[]}))
+    page.locator('.bubble').filter(has_text='第二条完成').wait_for()
+    page.unroute('**/api/chat',hold_chat)
+    page.locator('.composer textarea').fill('/missing-command')
+    page.get_by_role('button',name='发送',exact=True).click()
+    page.locator('.toast-message').filter(has_text='未知命令').wait_for()
+    assert page.locator('.composer-wrap .notice-error').count()==0
+    page.locator('.toast-message').filter(has_text='未知命令').wait_for(state='detached',timeout=4500)
+    page.keyboard.press('Escape')
+    page.locator('.composer textarea').fill('')
     page.get_by_role('button',name='已完成 1 个任务（共 2 个）',exact=False).wait_for()
     assert page.locator('.plan-item.completed').count()==1
     page.locator('.task-plan-heading').click()
@@ -154,8 +188,15 @@ with sync_playwright() as p:
     mcp_section.locator(':scope>summary').click()
     page.get_by_role('button',name='编辑 JSON',exact=True).click()
     page.get_by_role('dialog',name='编辑源文件').wait_for()
+    page.wait_for_timeout(250)
+    editor_box=page.get_by_role('dialog',name='编辑源文件').bounding_box()
+    assert abs(editor_box['x']+editor_box['width']/2-720)<3,editor_box
+    assert abs(editor_box['y']+editor_box['height']/2-500)<3,editor_box
     assert 'servers' in page.get_by_role('textbox',name='文件内容').input_value()
     page.get_by_role('button',name='取消',exact=True).click()
+    page.get_by_role('button',name='新增服务器',exact=True).click()
+    page.get_by_role('dialog',name='新增 MCP 服务器').wait_for()
+    page.get_by_role('dialog',name='新增 MCP 服务器').get_by_role('button',name='关闭弹窗').click()
     page.get_by_role('button',name='全部设置',exact=True).click()
     assert page.get_by_text('命令执行',exact=True).count()==0
     assert page.get_by_text('沙箱审批',exact=True).count()==0
@@ -179,6 +220,8 @@ with sync_playwright() as p:
             assert terminal.bounding_box()['height'] < page.viewport_size['height']
             page.get_by_role('button',name='全部',exact=False).click()
         if label == '连接网关':
+            switch_style=page.get_by_role('switch',name='启用 API 连接').evaluate('(el)=>({width:getComputedStyle(el).width,height:getComputedStyle(el).height,radius:getComputedStyle(el).borderRadius,thumb:getComputedStyle(el,"::after").backgroundColor})')
+            assert switch_style=={'width':'24px','height':'16px','radius':'4px','thumb':'rgb(255, 255, 255)'},switch_style
             page.get_by_label('监听端口',exact=True).fill('9001')
             with page.expect_request(lambda r:'/api/gateway' in r.url and r.method=='PUT') as gateway_saved:
                 page.get_by_role('button',name='保存网关设置',exact=True).click()

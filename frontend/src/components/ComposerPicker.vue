@@ -1,6 +1,6 @@
 <template>
   <div class="composer-picker" ref="root">
-    <button type="button" class="composer-control" :aria-label="label" :aria-expanded="open" @click="open = !open"><UiIcon :name="label === '模型组' ? 'sparkles' : label === '人格' ? 'bot' : 'security'" :size="16"/><span>{{ selectedLabel }}</span><UiIcon name="chevron" :size="13"/></button>
+    <button type="button" class="composer-control" :aria-label="label" :aria-expanded="open" @click="open = !open"><UiIcon :name="label === '模型' ? 'models' : label === '强度' ? 'sparkles' : label === '人格' ? 'bot' : 'security'" :size="16"/><span>{{ selectedLabel }}</span><UiIcon name="chevron" :size="13"/></button>
     <Transition name="popover"><div v-if="open" class="composer-popover">
       <input v-model="query" :placeholder="`搜索${label}`" :aria-label="`搜索${label}`" @keydown.esc="open = false"/>
       <div class="picker-options"><template v-for="(option,index) in filtered" :key="option.value"><p v-if="option.group && (index === 0 || filtered[index-1].group !== option.group)" class="picker-group">{{option.group}}</p><button type="button" :class="{selected: option.value === modelValue}" @click="choose(option.value)">{{option.label}}<UiIcon v-if="option.value === modelValue" name="check" :size="16"/></button></template><p v-if="!filtered.length">没有匹配项</p></div>
