@@ -1,0 +1,26 @@
+<template>
+  <section class="gateway-page"><header><p class="kicker">设置 / 连接</p><h1><UiIcon name="gateway" :size="24"/>连接网关</h1><p class="hint">配置 OpenAI 兼容 API 与 WebSocket 连接。</p></header>
+    <p v-if="message" role="status" :class="failed?'notice-error':'gateway-message'">{{message}}</p>
+    <form @submit.prevent="save">
+      <SettingSection title="监听设置" icon="sliders"><p>API 和 WebSocket 共用监听地址与端口。修改监听设置后重启后端生效。</p><div class="gateway-fields"><label>监听地址<select v-model="form.host"><option value="127.0.0.1">127.0.0.1（本机）</option><option value="0.0.0.0">0.0.0.0（全部网卡）</option><option v-if="!['127.0.0.1','0.0.0.0'].includes(form.host)" :value="form.host">{{form.host}}</option></select></label><label>监听端口<input v-model.number="form.port" type="number" min="1" max="65535" required/></label></div><p v-if="current">当前连接：{{current.host}}:{{current.port}}<span v-if="current.port!==form.port"> · 端口修改待重启生效</span></p></SettingSection>
+      <SettingSection title="API 连接" icon="gateway"><div class="gateway-toggle"><p>OpenAI 兼容接口，可供外部应用调用。</p><button type="button" class="switch" role="switch" aria-label="启用 API 连接" :aria-checked="form.api_enabled" @click="form.api_enabled=!form.api_enabled"/></div><label class="endpoint-label">API Base URL<code>{{httpAddress}}/v1</code></label><p><code>GET /v1/models</code> · <code>POST /v1/chat/completions</code></p></SettingSection>
+      <SettingSection title="WebSocket 连接" icon="mcp"><div class="gateway-toggle"><p>保持连接，接收任务计划更新和最终回复。</p><button type="button" class="switch" role="switch" aria-label="启用 WebSocket 连接" :aria-checked="form.websocket_enabled" @click="form.websocket_enabled=!form.websocket_enabled"/></div><label class="endpoint-label">WebSocket URL<code>{{socketAddress}}/ws/chat</code></label><details class="protocol-help"><summary>消息格式</summary><pre>{{example}}</pre><p>服务端返回 started、plan、result 或 error 消息。plan 为任务进度，result.data 为回复结果。</p></details><button class="btn" type="button" :disabled="testing||!form.websocket_enabled" @click="testConnection"><UiIcon name="refresh"/>{{testing?'连接中…':'测试已保存的连接'}}</button></SettingSection>
+      <footer><span class="hint">连接开关保存后立即生效。</span><button class="btn btn-primary" :disabled="loading"><UiIcon name="save"/>{{loading?'保存中…':'保存网关设置'}}</button></footer>
+    </form>
+  </section>
+</template>
+<script setup lang="ts">
+import {computed,onMounted,onUnmounted,reactive,ref} from 'vue';
+import SettingSection from '../components/SettingSection.vue';
+import {request} from '../store/app';
+const form=reactive({host:'127.0.0.1',port:8888,api_enabled:true,websocket_enabled:false}),current=ref<{host:string;port:number}|null>(null),message=ref(''),failed=ref(false),loading=ref(false),testing=ref(false);
+const hostname=computed(()=>form.host==='0.0.0.0'?window.location.hostname:form.host),httpAddress=computed(()=>`http://${hostname.value}:${form.port}`),socketAddress=computed(()=>`ws://${hostname.value}:${form.port}`);
+const example=JSON.stringify({message:'检查项目并修复问题',thread_id:'my-session',persona:'shizuku'},null,2);
+let socket:WebSocket|undefined;let timer:ReturnType<typeof setTimeout>|undefined;
+async function save(){loading.value=true;failed.value=false;try{const data=await request<{message:string}>('/api/gateway',{method:'PUT',body:JSON.stringify(form)});message.value=data.message;}catch(e){failed.value=true;message.value=String(e);}finally{loading.value=false;}}
+function testConnection(){testing.value=true;failed.value=false;socket=new WebSocket(`${window.location.protocol==='https:'?'wss:':'ws:'}//${window.location.host}/ws/chat`);const done=(ok:boolean)=>{clearTimeout(timer);testing.value=false;failed.value=!ok;message.value=ok?'WebSocket 连接成功':'WebSocket 连接失败，请确认已保存启用设置，并重启过前端开发服务';socket?.close();};socket.onopen=()=>done(true);socket.onerror=()=>done(false);socket.onclose=()=>{if(testing.value)done(false);};timer=setTimeout(()=>done(false),5000);}
+onMounted(async()=>{try{const data=await request<{config:typeof form;current:typeof current.value}>('/api/gateway');Object.assign(form,data.config);current.value=data.current;}catch(e){failed.value=true;message.value=String(e);}});onUnmounted(()=>{clearTimeout(timer);socket?.close();});
+</script>
+<style scoped>
+.gateway-page{max-width:1080px!important;}.gateway-page h1{display:flex;align-items:center;gap:10px;font-size:24px;}.gateway-page form{display:grid;gap:16px;margin-top:24px;}.gateway-fields{display:grid;grid-template-columns:1fr 1fr;gap:16px;}.gateway-fields label,.endpoint-label{display:grid;gap:8px;font-size:12px;}.gateway-toggle{display:flex;align-items:center;justify-content:space-between;gap:20px;}.endpoint-label code{display:block;padding:12px;border:1px solid var(--border);background:var(--bg-raised);border-radius:8px;overflow-wrap:anywhere;font-size:12px;}.gateway-page footer{display:flex;align-items:center;justify-content:space-between;gap:12px;}.gateway-message{font-size:12px;color:var(--success);}.protocol-help{margin:16px 0;}.protocol-help summary{cursor:pointer;font-size:12px;color:var(--muted);}.protocol-help pre{font-size:12px;background:var(--bg-raised);padding:16px;border-radius:8px;white-space:pre-wrap;}@media(max-width:700px){.gateway-fields{grid-template-columns:1fr;}}
+</style>

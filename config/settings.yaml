@@ -1,0 +1,38 @@
+server:
+  host: 127.0.0.1
+  port: 8000
+
+llm:
+  provider: openai_compatible
+  model: u2-flash
+  base_url: https://maas-api.unisound.com/v1
+  api_key: ""
+
+providers:
+  openai:
+    name: Unisound MaaS
+    type: openai_compatible
+    base_url: https://maas-api.unisound.com/v1
+    api_key: ""
+
+models:
+  primary:
+    provider: openai
+    model: u2-flash
+    name: Primary Agent Model
+    capabilities: [chat, tools]
+    enabled: true
+    auxiliary_only: false
+
+model_groups:
+  default:
+    name: Default Agent
+    purpose: agent
+    strategy: fallback
+    models: [primary]
+
+default_model_group: default
+
+agent:
+  default_persona: shizuku
+  thread_id: default

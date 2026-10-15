@@ -1,0 +1,18 @@
+{
+  "id": "local-files",
+  "name": "Local Files",
+  "description": "Workspace file tools for the engineer/operator personas",
+  "type": "internal",
+  "command": "",
+  "args": [],
+  "url": "",
+  "headers": {},
+  "enabled": true,
+  "status": "connected",
+  "tools": [
+    "read_file",
+    "list_dir",
+    "write_file"
+  ],
+  "updated_at": "2026-10-15T06:20:37Z"
+}

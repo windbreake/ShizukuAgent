@@ -1,0 +1,26 @@
+<template>
+  <section class="logs-page">
+    <header><p class="kicker">设置 / 系统</p><h1><UiIcon name="terminal" :size="24"/>运行日志</h1><p class="hint">按日志级别筛选；终端随新日志滚动，可随时暂停跟随。</p></header>
+    <div class="logs-toolbar"><div class="log-filters" aria-label="日志类型"><button v-for="item in levels" :key="item.id" class="btn" :class="{selected:selected===item.id}" :aria-pressed="selected===item.id" @click="selected=item.id"><span :class="['level-dot',item.id]"/>{{item.label}} <small>{{counts[item.id]||0}}</small></button></div><div class="log-actions"><button class="btn" :aria-pressed="follow" @click="follow=!follow"><UiIcon name="arrowUp" class="follow-icon"/>{{follow?'跟随日志':'已暂停跟随'}}</button><button class="btn" :disabled="loading" @click="refresh"><UiIcon name="refresh"/>刷新</button><button class="btn" @click="clear"><UiIcon name="delete"/>清空显示</button></div></div>
+    <div ref="terminal" class="log-terminal" tabindex="0" aria-label="运行日志终端" @scroll="onScroll"><div v-for="line in visible" :key="line.index" :class="['log-line',line.level]"><span class="line-number">{{line.index+1}}</span><span class="line-text">{{line.text}}</span></div><p v-if="!visible.length" class="log-empty">暂无匹配日志</p></div>
+    <footer class="log-footer"><span><span class="connection-dot"/>{{loading?'正在读取':'每 2 秒刷新'}}</span><span>显示 {{visible.length}} / {{lines.length}} 行</span></footer>
+  </section>
+</template>
+<script setup lang="ts">
+import {computed,nextTick,onMounted,onUnmounted,ref,watch} from 'vue';
+const raw=ref(''),selected=ref('all'),loading=ref(false),follow=ref(true),terminal=ref<HTMLElement|null>(null);
+const levels=[{id:'all',label:'全部'},{id:'info',label:'正常'},{id:'warn',label:'警告'},{id:'error',label:'错误'},{id:'debug',label:'调试'}];
+function level(text:string){if(/\b(ERROR|CRITICAL|FATAL|Traceback)\b/i.test(text))return 'error';if(/\b(WARN|WARNING)\b/i.test(text))return 'warn';if(/\b(DEBUG|TRACE)\b/i.test(text))return 'debug';return 'info';}
+const lines=computed(()=>{let previous='info';return raw.value.split(/\r?\n/).filter(Boolean).slice(-5000).map((text,index)=>{const own=level(text);const explicit=/\b(INFO|WARN|WARNING|ERROR|CRITICAL|FATAL|DEBUG|TRACE)\b/.test(text);previous=explicit||text.startsWith('Traceback')?own:(/^\s|^\w+(Error|Exception):/.test(text)?previous:own);return {text,index,level:previous};});});
+const visible=computed(()=>lines.value.filter(line=>selected.value==='all'||line.level===selected.value));
+const counts=computed(()=>{const result:Record<string,number>={all:lines.value.length};for(const line of lines.value)result[line.level]=(result[line.level]||0)+1;return result;});
+let timer:ReturnType<typeof setInterval>|undefined;let controller:AbortController|undefined;let cleared='';
+async function refresh(){if(loading.value)return;loading.value=true;controller=new AbortController();try{const response=await fetch('/api/logs',{signal:controller.signal});if(!response.ok)throw new Error('HTTP '+response.status);const text=await response.text();if(cleared&&!text.startsWith(cleared))cleared='';raw.value=(cleared?text.slice(cleared.length):text).slice(-300000);}catch(e){if(!controller.signal.aborted)raw.value+='\n[ERROR] 获取日志失败：'+String(e);}finally{loading.value=false;}}
+function clear(){cleared+=raw.value;raw.value='';}
+function onScroll(){const el=terminal.value;if(el)follow.value=el.scrollHeight-el.scrollTop-el.clientHeight<36;}
+watch([visible,follow],async()=>{await nextTick();if(follow.value&&terminal.value)terminal.value.scrollTop=terminal.value.scrollHeight;});
+onMounted(()=>{void refresh();timer=setInterval(refresh,2000);});onUnmounted(()=>{clearInterval(timer);controller?.abort();});
+</script>
+<style scoped>
+.logs-page{height:100%;min-height:0;display:flex;flex-direction:column;gap:18px;box-sizing:border-box;max-width:1400px!important;overflow:hidden;}.logs-page header{flex-shrink:0;}.logs-page h1{display:flex;align-items:center;gap:10px;font-size:24px;}.logs-toolbar,.log-actions,.log-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}.logs-toolbar{justify-content:space-between;flex-shrink:0;}.log-filters .selected{background:var(--accent-dim);border-color:var(--accent);color:var(--accent);}.log-filters small{font-size:10px;opacity:.7;}.log-terminal{flex:1;min-height:120px;overflow:auto;background:#17191d;border:1px solid #30333a;border-radius:12px;padding:16px 8px;font-family:var(--font-mono);font-size:12px;line-height:1.8;scrollbar-color:auto;}.log-line{display:flex;color:#cbd2dc;}.log-line.error{color:#ff9098;}.log-line.warn{color:#edc777;}.log-line.debug{color:#8fa6c5;}.line-number{width:48px;padding:0 12px 0 4px;text-align:right;flex-shrink:0;color:#677080;user-select:none;}.line-text{white-space:pre-wrap;overflow-wrap:anywhere;min-width:0;}.log-line:hover{background:#ffffff08;}.log-empty{color:#9299a7;padding:0 16px;}.level-dot{width:6px;height:6px;display:inline-block;border-radius:50%;background:var(--muted);}.level-dot.error{background:#e76d79;}.level-dot.warn{background:#d2a043;}.level-dot.info,.connection-dot{background:#54ae91;}.level-dot.debug{background:#809cc2;}.log-footer{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);flex-shrink:0;}.connection-dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:6px;}.follow-icon{transform:rotate(180deg);}
+</style>

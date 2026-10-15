@@ -1,9 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "shuzuku-agent"
-version = "0.1.0"
-requires-python = ">=3.14"
+name = "nekoagent"
+version = "1.0.0"
+description = "LangGraph-powered local agent with CLI and web interface"
+requires-python = ">=3.11"
 dependencies = [
-    "fastapi>=0.141.1",
-    "pyyaml>=6.0.3",
-    "uvicorn>=0.52.4",
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+  "pydantic>=2.9.0",
+  "pyyaml>=6.0.2",
+  "python-dotenv>=1.0.1",
+  "psutil>=6.0.0",
+  "openai>=1.50.0",
+  "langgraph>=0.2.0",
+  "langchain-core>=0.3.0",
+  "langsmith>=0.1.0",
 ]
+
+[project.scripts]
+nekoagent = "app.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
