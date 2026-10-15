@@ -134,7 +134,7 @@ langsmith:
 
 ```powershell
 $env:LANGSMITH_TRACING="true"
-$env:LANGSMITH_API_KEY="lsv2_..."
+$env:LANGSMITH_API_KEY=""
 nekoagent
 ```
 
