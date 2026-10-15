@@ -25,7 +25,7 @@ class ModelFlowHttpTests(unittest.TestCase):
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         base=f'http://127.0.0.1:{server.server_port}'
-        snapshot={'providers':{'p':{'name':'Demo','base_url':base,'api_key':''}},'models':{'primary':{'provider':'p','model':'remote/a','name':'Primary Agent Model','capabilities':['chat']}},'model_groups':{'default':{'purpose':'agent','models':['primary']}},'default_model_group':'default','auxiliary_apis':{}}
+        snapshot={'providers':{'p':{'name':'Demo','base_url':base,'api_key':'stored-key'}},'models':{'primary':{'provider':'p','model':'remote/a','name':'Primary Agent Model','capabilities':['chat']}},'model_groups':{'default':{'purpose':'agent','models':['primary']}},'default_model_group':'default','auxiliary_apis':{}}
         try:
             with patch.object(model_registry,'snapshot',side_effect=lambda **kwargs:deepcopy(snapshot)),patch.object(model_registry,'update') as update:
                 client=TestClient(app)
