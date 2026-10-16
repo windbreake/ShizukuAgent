@@ -1,6 +1,6 @@
 @echo off
 cd /d "%~dp0"
-title ShizukuClaw Backend
+title ShizukuAgent Backend
 
 set "PY="
 if exist "%LocalAppData%\Programs\Python\Python312\python.exe" set "PY=%LocalAppData%\Programs\Python\Python312\python.exe"

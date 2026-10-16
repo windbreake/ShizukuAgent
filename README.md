@@ -1,4 +1,4 @@
-# ShizukuClaw Remake Alpha 1.0
+# ShizukuAgent Remake Alpha 1.0
 
 当前仓库以 ShizukuAgent 名称维护。新版功能、网关设置、任务计划及已知边界参见 [初步项目说明](PROJECT_OVERVIEW.md)。本文件与 ABOUT.md 保留重构历史说明，部分早期描述以初步项目说明和当前源码为准。
 
@@ -126,7 +126,7 @@ LangSmith 以插件形式存在于 `plugins/observability/langsmith/`，项目�
 langsmith:
   enabled: true
   api_key: lsv2_...
-  project: shizukuclaw
+  project: shizukuagent
   endpoint: https://api.smith.langchain.com
 ```
 

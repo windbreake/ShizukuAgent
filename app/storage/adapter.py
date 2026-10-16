@@ -107,7 +107,7 @@ class StorageAdapter:
                 port=int(cfg.get("port", 5432)),
                 user=cfg.get("user", "postgres"),
                 password=cfg.get("password", ""),
-                dbname=cfg.get("database", "shizukuclaw"),
+                dbname=cfg.get("database", "shizukuagent"),
             )
             self._sql_conn.autocommit = True
             self._init_postgres_schema()
@@ -120,7 +120,7 @@ class StorageAdapter:
             port=int(cfg.get("port", 3306)),
             user=cfg.get("user", "root"),
             password=cfg.get("password", ""),
-            database=cfg.get("database", "shizukuclaw"),
+            database=cfg.get("database", "shizukuagent"),
             charset="utf8mb4",
             autocommit=True,
             cursorclass=pymysql.cursors.DictCursor,
@@ -665,7 +665,7 @@ def probe_database(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
                 port=port,
                 user=data.get("user") or "postgres",
                 password=data.get("password") or "",
-                dbname=data.get("database") or "shizukuclaw",
+                dbname=data.get("database") or "shizukuagent",
                 connect_timeout=5,
             )
             conn.close()
@@ -677,7 +677,7 @@ def probe_database(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
                 port=port,
                 user=data.get("user") or "root",
                 password=data.get("password") or "",
-                database=data.get("database") or "shizukuclaw",
+                database=data.get("database") or "shizukuagent",
                 connect_timeout=5,
             )
             conn.close()
@@ -724,7 +724,7 @@ def run_sql(query: str, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
                 port=int(data.get("port") or 5432),
                 user=data.get("user") or "postgres",
                 password=data.get("password") or "",
-                dbname=data.get("database") or "shizukuclaw",
+                dbname=data.get("database") or "shizukuagent",
                 connect_timeout=5,
             )
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -739,7 +739,7 @@ def run_sql(query: str, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
             port=int(data.get("port") or 3306),
             user=data.get("user") or "root",
             password=data.get("password") or "",
-            database=data.get("database") or "shizukuclaw",
+                database=data.get("database") or "shizukuagent",
             connect_timeout=5,
             cursorclass=pymysql.cursors.DictCursor,
         )

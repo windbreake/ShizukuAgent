@@ -43,7 +43,7 @@ def status() -> dict[str, Any]:
     cfg = _load_config()
     return {
         "enabled": is_enabled(),
-        "project": os.getenv("LANGSMITH_PROJECT") or cfg.get("project") or "shizukuclaw",
+        "project": os.getenv("LANGSMITH_PROJECT") or cfg.get("project") or "shizukuagent",
         "endpoint": os.getenv("LANGSMITH_ENDPOINT")
         or cfg.get("endpoint")
         or "https://api.smith.langchain.com",

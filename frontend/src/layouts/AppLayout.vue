@@ -2,7 +2,7 @@
   <div class="app-shell">
     <header class="titlebar">
       <span class="mark" aria-hidden="true">雫</span>
-      <span class="product">ShizukuClaw</span>
+      <span class="product">ShizukuAgent</span>
       <span class="crumb">{{ crumb }}</span>
       <span class="spacer"></span>
       <RouterLink class="top-link" to="/chat-sandbox">工作台</RouterLink>

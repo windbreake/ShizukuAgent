@@ -2,7 +2,7 @@
   "name": "core.local",
   "version": "1.0.0",
   "description": "Remake 核心插件：聊天、人格、记忆、本地存储",
-  "author": "ShizukuClaw",
+  "author": "ShizukuAgent",
   "hooks": ["chat", "memory"],
   "policy": {
     "enabled": true,

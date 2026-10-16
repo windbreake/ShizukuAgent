@@ -1,3 +1,3 @@
-"""ShizukuClaw remake backend package."""
+"""ShizukuAgent remake backend package."""
 
 __version__ = "1.0.0"

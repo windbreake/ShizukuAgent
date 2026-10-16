@@ -30,7 +30,7 @@ def search_github_skills(query: str = "", page: int = 1, page_size: int = 24) ->
     items: list[dict[str, Any]] = []
     total = 0
     try:
-        request = Request(url, headers={"User-Agent": "ShizukuClaw", "Accept": "application/vnd.github+json"})
+        request = Request(url, headers={"User-Agent": "ShizukuAgent", "Accept": "application/vnd.github+json"})
         with urlopen(request, timeout=20) as resp:
             payload = json.loads(resp.read().decode("utf-8", errors="replace"))
         total = int(payload.get("total_count") or 0)
@@ -110,7 +110,7 @@ def _download_skill(url: str, dest: Path, skill_id: str, name: str, description:
     parsed = urlparse(url)
     if "github.com" in parsed.netloc and "/blob/" in parsed.path:
         url = url.replace("https://github.com/", "https://raw.githubusercontent.com/").replace("/blob/", "/")
-    request = Request(url, headers={"User-Agent": "ShizukuClaw"})
+    request = Request(url, headers={"User-Agent": "ShizukuAgent"})
     with urlopen(request, timeout=20) as resp:
         body = resp.read()
         content_type = str(resp.headers.get("Content-Type") or "")

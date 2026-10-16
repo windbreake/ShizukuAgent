@@ -37,7 +37,7 @@ class PluginManager:
                 kind="core",
                 version="1.0.0",
                 description="Remake 核心插件：聊天、人格、记忆、本地存储",
-                author="ShizukuClaw",
+                author="ShizukuAgent",
                 enabled=True,
                 path=str(self.plugins_dir / "core"),
                 manifest_path=str(self.plugins_dir / "core" / "plugin.json"),

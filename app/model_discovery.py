@@ -47,7 +47,7 @@ def parse_models(body):
 
 
 def fetch_models(provider):
-    headers={'Accept':'application/json','User-Agent':provider.get('user_agent') or 'ShizukuClaw/1.0'}
+    headers={'Accept':'application/json','User-Agent':provider.get('user_agent') or 'ShizukuAgent/1.0'}
     headers.update(provider.get('request_headers') or {})
     key=provider.get('api_key') or ''
     if key: headers['Authorization']='Bearer '+key

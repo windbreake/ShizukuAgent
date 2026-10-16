@@ -1,6 +1,6 @@
 @echo off
 cd /d "%~dp0"
-title ShizukuClaw Frontend
+title ShizukuAgent Frontend
 
 set "NODE="
 if exist "C:\nvm4w\nodejs\node.exe" set "NODE=C:\nvm4w\nodejs\node.exe"

@@ -71,7 +71,7 @@ class McpStdioClient:
             {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
-                "clientInfo": {"name": "shizukuclaw", "version": "1.0.0"},
+                "clientInfo": {"name": "shizukuagent", "version": "1.0.0"},
             },
         )
         self._notify("notifications/initialized")
@@ -181,7 +181,7 @@ class McpHttpClient:
             {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
-                "clientInfo": {"name": "shizukuclaw", "version": "1.0.0"},
+                "clientInfo": {"name": "shizukuagent", "version": "1.0.0"},
             },
         )
         self._initialized = True

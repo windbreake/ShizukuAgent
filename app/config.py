@@ -21,14 +21,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "port": 3306,
             "user": "root",
             "password": "",
-            "database": "shizukuclaw",
+            "database": "shizukuagent",
         },
         "postgresql": {
             "host": "127.0.0.1",
             "port": 5432,
             "user": "postgres",
             "password": "",
-            "database": "shizukuclaw",
+            "database": "shizukuagent",
         },
     },
     "llm": {
@@ -96,7 +96,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "langsmith": {
         "enabled": False,
         "api_key": "",
-        "project": "shizukuclaw",
+        "project": "shizukuagent",
         "endpoint": "https://api.smith.langchain.com",
     },
     "unified_api": {"port": 8000},

@@ -8,7 +8,7 @@ from app.paths import LOG_DIR, ensure_runtime_dirs
 
 def setup_logging() -> logging.Logger:
     ensure_runtime_dirs()
-    logger = logging.getLogger("shizukuclaw")
+    logger = logging.getLogger("shizukuagent")
     if logger.handlers:
         return logger
     logger.setLevel(logging.INFO)

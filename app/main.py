@@ -36,7 +36,7 @@ TOKEN_STATS = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 logger = setup_logging()
 ensure_runtime_dirs()
 
-app = FastAPI(title="ShizukuClaw Remake", version="1.0.0")
+app = FastAPI(title="ShizukuAgent Remake", version="1.0.0")
 get_observability_manager().configure_all()
 app.add_middleware(
     CORSMiddleware,
@@ -159,7 +159,7 @@ def _safe_psutil():
 @app.get("/api/backend/status")
 async def backend_status() -> dict[str, Any]:
     return {
-        "status": "ShizukuClaw Remake Backend Running",
+        "status": "ShizukuAgent Remake Backend Running",
         "version": "1.0.0",
         "docs": "/docs",
         "storage": _storage().status(),
@@ -177,7 +177,7 @@ async def list_models() -> dict[str, Any]:
     return {
         "object": "list",
         "data": [
-            {"id": item["id"], "object": "model", "owned_by": item.get("provider", "shizukuclaw"), "capabilities": item.get("capabilities", [])}
+            {"id": item["id"], "object": "model", "owned_by": item.get("provider", "shizukuagent"), "capabilities": item.get("capabilities", [])}
             for item in model_registry.list_agent_models()
         ],
     }
@@ -419,7 +419,7 @@ async def save_config(body: ConfigUpdate) -> dict[str, Any]:
                 "port": int(db.get("port") or (5432 if engine.startswith("postgres") else 3306)),
                 "user": db.get("user") or "",
                 "password": db.get("password") or "",
-                "database": db.get("database") or "shizukuclaw",
+                "database": db.get("database") or "shizukuagent",
             }
     settings.update(incoming)
     model_name = str(llm.get("model") or "gpt-4o-mini")
@@ -551,7 +551,7 @@ async def diagnosis() -> HTMLResponse:
     skills = _skills().list_skills()
     mcp = _mcp().list_servers()
     lines = [
-        "<h3>ShizukuClaw 诊断结果</h3>",
+        "<h3>ShizukuAgent 诊断结果</h3>",
         f"<p>时间: {datetime.now().isoformat(timespec='seconds')}</p>",
         f"<p>存储驱动: {html.escape(str(storage.get('driver')))} / ready={storage.get('ready')}</p>",
         f"<p>Skill 数量: {len(skills)}</p>",

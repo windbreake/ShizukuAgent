@@ -520,7 +520,7 @@ async def delete_subscription(subscription_id: str):
 async def api_status():
     graph = get_agent_graph()
     return {
-        "status": "ShizukuClaw Remake Backend Running",
+        "status": "ShizukuAgent Remake Backend Running",
         "version": "1.0.0",
         "docs": "/docs",
         "storage": get_storage().status(),

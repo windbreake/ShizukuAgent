@@ -1,6 +1,6 @@
 # ABOUT
 
-ShizukuClaw Remake Alpha 1.0 是对原项目的前后端分离重构，不是把 `old/` 整包复制过来。
+ShizukuAgent Remake Alpha 1.0 是对原项目的前后端分离重构，不是把 `old/` 整包复制过来。
 
 许可证：GPL-3.0
 

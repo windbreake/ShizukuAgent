@@ -1,6 +1,6 @@
 <template>
   <section class="model-settings">
-    <header class="settings-heading"><div><p class="eyebrow">ShizukuClaw / 连接</p><h1>提供商</h1><p>独立凭据、模型列表与会话选择。</p></div><RouterLink class="btn provider-add" to="/providers/new"><UiIcon name="plus"/>添加提供商</RouterLink></header>
+    <header class="settings-heading"><div><p class="eyebrow">ShizukuAgent / 连接</p><h1>提供商</h1><p>独立凭据、模型列表与会话选择。</p></div><RouterLink class="btn provider-add" to="/providers/new"><UiIcon name="plus"/>添加提供商</RouterLink></header>
     <nav class="model-tabs" aria-label="模型管理分类"><button v-for="tab in tabs" :key="tab.id" :class="{active:active===tab.id}" @click="active=tab.id"><UiIcon :name="tab.icon"/>{{tab.label}}</button><span class="spacer"/><RouterLink to="/monitoring" class="usage-link"><UiIcon name="activity"/>用量</RouterLink></nav>
     <label class="model-search"><UiIcon name="search"/><input v-model="query" :placeholder="active === 'providers' ? '搜索提供商或地址' : '搜索模型或分组'" aria-label="搜索模型配置"/><span>{{count}} 项</span></label>
     <ModelSelectionDialog :visible="Boolean(editingProvider)" :provider-name="String(appStore.providers[editingProvider]?.name || editingProvider)" :remote="remoteModels" :local="localModels" :selected="selection" :loading="fetching" :saving="saving" :error="selectionError" @cancel="editingProvider=''" @refresh="refreshSelection" @apply="applySelected"/>

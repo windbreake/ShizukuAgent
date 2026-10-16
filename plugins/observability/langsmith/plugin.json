@@ -3,6 +3,6 @@
   "name": "LangSmith",
   "version": "1.0.0",
   "description": "LangGraph 官方可观测性插件：将图执行 trace 上传到 LangSmith",
-  "author": "ShizukuClaw",
+  "author": "ShizukuAgent",
   "enabled": true
 }

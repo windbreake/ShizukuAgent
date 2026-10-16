@@ -1,6 +1,6 @@
 <template>
  <section class="provider-editor">
-  <header><RouterLink to="/models" class="icon-btn" aria-label="返回提供商"><UiIcon name="back"/></RouterLink><h1>{{isNew?'添加提供商':'编辑 '+form.name}}</h1><span>ShizukuClaw</span></header>
+  <header><RouterLink to="/models" class="icon-btn" aria-label="返回提供商"><UiIcon name="back"/></RouterLink><h1>{{isNew?'添加提供商':'编辑 '+form.name}}</h1><span>ShizukuAgent</span></header>
   <form @submit.prevent="save">
    <label class="field">提供商标识<input v-model="id" :disabled="!isNew" required pattern="[A-Za-z0-9._-]+"/><small>创建后标识保持不变。</small></label>
    <div class="editor-columns"><label class="field">名称<input v-model="form.name" required/></label><label class="field">模型列表地址（可选）<input v-model="form.models_url" placeholder="留空按 Base URL 获取"/></label></div>

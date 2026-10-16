@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0"
-title ShizukuClaw
-echo ShizukuClaw starting...
+title ShizukuAgent
+echo ShizukuAgent starting...
 
 set "PY="
 if exist "%LocalAppData%\Programs\Python\Python312\python.exe" set "PY=%LocalAppData%\Programs\Python\Python312\python.exe"
@@ -36,5 +36,5 @@ echo Starting backend + frontend (web mode)...
 echo Frontend: http://127.0.0.1:5173   Backend port: see data/dev_port.txt
 %PY% -m app.cli web
 echo.
-echo ShizukuClaw stopped.
+echo ShizukuAgent stopped.
 pause
