@@ -37,7 +37,7 @@ class FakeStorage:
     def search_memories(self, query: str, persona: str, top_k: int = 5) -> list[dict]:
         return []
 
-    def add_chat_record(self, persona: str, role: str, content: str) -> int:
+    def add_chat_record(self, persona: str, role: str, content: str, thread_id: str | None = None) -> int:
         self.records.append((persona, role, content))
         return len(self.records)
 
@@ -205,10 +205,9 @@ class AgentGraphTests(unittest.TestCase):
             },
             clear=False,
         ):
-            result = agent.invoke("全部失败", persona="shizuku", model_group="fallback")
-
-        self.assertEqual("langgraph-model-fallback-failed", result["engine"])
-        self.assertIn("所有 Agent 模型均调用失败", result["reply"])
+            with self.assertRaisesRegex(RuntimeError,'模型请求失败'):
+                agent.invoke("全部失败", persona="shizuku", model_group="fallback")
+        self.assertEqual(['user'],[m['role'] for m in agent._harness.get_history('persona:shizuku','shizuku')])
 
 
 class VisionCapabilityTests(unittest.TestCase):

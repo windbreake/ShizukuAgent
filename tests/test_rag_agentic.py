@@ -19,7 +19,7 @@ class MemoryStorage:
     def search_memories(self, query: str, persona: str | None = None, top_k: int = 5) -> list[dict]:
         return self.memories
 
-    def add_chat_record(self, persona: str, role: str, content: str) -> int:
+    def add_chat_record(self, persona: str, role: str, content: str, thread_id: str | None = None) -> int:
         return 0
 
     def add_memory(self, persona: str, content: str, kind: str = "long_term") -> int:

@@ -11,6 +11,10 @@
       <button class="theme-toggle" type="button" @click="appearance.toggle" :aria-label="appearance.theme === 'light' ? '切换深色主题' : '切换浅色主题'">
         <UiIcon :name="appearance.theme === 'light' ? 'moon' : 'sun'" :size="18"/>
       </button>
+      <template v-if="isWorkbench">
+        <button class="sidebar-toggle" type="button" title="隐藏或显示会话列表" aria-label="隐藏或显示会话列表" :aria-expanded="workbench.sessionsOpen" :aria-pressed="workbench.sessionsOpen" @click="workbench.toggleSessions"><UiIcon name="panelLeft" :size="17"/></button>
+        <button class="sidebar-toggle" type="button" title="收起或展开右侧栏" aria-label="收起或展开右侧栏" :aria-expanded="workbench.inspectorOpen" :aria-pressed="workbench.inspectorOpen" @click="workbench.toggleInspector"><UiIcon name="panelRight" :size="17"/></button>
+      </template>
     </header>
     <div class="management-shell" :class="{ 'is-workbench': isWorkbench }">
       <aside v-if="!isWorkbench" class="management-nav">
@@ -41,9 +45,23 @@ import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { useAppearanceStore } from "../store/appearance";
 import { vContentMotion } from '../directives/contentMotion';
+import { useWorkbenchLayoutStore } from '../store/workbenchLayout';
 
 const route = useRoute();
 const appearance = useAppearanceStore();
+const workbench = useWorkbenchLayoutStore();
 const isWorkbench = computed(() => route.path === '/chat-sandbox' || route.path === '/');
 const crumb = computed(() => String(route.meta.title || "工作台"));
 </script>
+
+<style scoped>
+.management-shell.is-workbench{min-width:0;overflow:hidden;}
+.is-workbench>.page-content{min-width:0;overflow:hidden;}
+.titlebar{min-width:0;}
+.sidebar-toggle{display:grid;place-items:center;width:32px;height:32px;flex:0 0 32px;border:0;border-radius:7px;color:var(--muted);background:transparent;}
+.sidebar-toggle:hover,.sidebar-toggle[aria-pressed=true]{background:var(--surface-2);color:var(--fg);}
+.sidebar-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.titlebar .mark,.titlebar .theme-toggle,.titlebar .top-link{flex-shrink:0;}
+@media(max-width:480px){.titlebar{gap:4px;padding-inline:8px;}.titlebar .product{display:none;}.titlebar .top-link{padding:6px;font-size:12px;}}
+@media(max-width:360px){.titlebar .product{display:none;}}
+</style>

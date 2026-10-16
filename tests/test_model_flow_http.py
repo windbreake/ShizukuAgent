@@ -29,7 +29,7 @@ class ModelFlowHttpTests(unittest.TestCase):
         try:
             with patch.object(model_registry,'snapshot',side_effect=lambda **kwargs:deepcopy(snapshot)),patch.object(model_registry,'update') as update:
                 client=TestClient(app)
-                discovery=client.post('/api/providers/discover',json={'provider_id':'p','name':'Demo','base_url':base,'api_key':'','request_headers':{'X-Workspace':'test'},'models':[]})
+                discovery=client.post('/api/providers/discover',json={'provider_id':'p','name':'Demo','base_url':base,'api_key':'stored-key','request_headers':{'X-Workspace':'test'},'models':[]})
                 self.assertEqual(200,discovery.status_code)
                 data=discovery.json()
                 self.assertEqual(base+'/v1',data['api_base_url'])

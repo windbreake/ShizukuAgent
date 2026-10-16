@@ -77,6 +77,8 @@ class AgentState(TypedDict):
 def latest_user_text(state: AgentState) -> str:
     """Extract the latest non-empty user message text from graph state."""
     for item in reversed(state.get("messages") or []):
+        if message_as_dict(item).get('role') != 'user':
+            continue
         content = item.get("content") if isinstance(item, dict) else getattr(item, "content", "")
         if isinstance(content, list):
             content = " ".join(

@@ -64,7 +64,8 @@ class AgentLatencyTests(unittest.TestCase):
                 type('Choice', (), {'message': {'content': 'ok'}})()]
             OpenAICompatibleClient().chat([], {'provider_config': {'api_key': 'test'}})
             self.assertEqual(0, factory.call_args.kwargs['max_retries'])
-            self.assertLessEqual(factory.call_args.kwargs['timeout'], 60)
+            self.assertEqual(180, factory.call_args.kwargs['timeout'].read)
+            self.assertEqual(15, factory.call_args.kwargs['timeout'].connect)
 
 
 if __name__ == '__main__':

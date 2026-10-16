@@ -1,5 +1,17 @@
 """Message identity and reversible session boundaries, independent of LLM windows."""
 import uuid
+from copy import deepcopy
+
+
+def fork(storage, thread, persona):
+    """Copy visible history, retaining tool context but never source record ownership."""
+    messages = deepcopy(visible(load(storage, thread, persona)))
+    for message in messages:
+        message['id'] = uuid.uuid4().hex
+        message.pop('record_id', None)
+    target = 's_' + uuid.uuid4().hex
+    storage.save_checkpoint(target, persona, {'messages': messages})
+    return target
 
 
 def load(storage, thread, persona):
@@ -30,5 +42,6 @@ def revert(storage, thread, persona, message_id):
     if target is None:
         raise ValueError('消息不存在于此会话，请重新加载会话')
     checkpoint['revert'] = {'message_id': message_id}
+    checkpoint.pop('context',None)
     storage.save_checkpoint(thread, persona, checkpoint)
     return target['content'], visible(checkpoint)

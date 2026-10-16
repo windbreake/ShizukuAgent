@@ -27,7 +27,7 @@ const display=computed(()=>events.value.filter((e,index,all)=>(props.active||e.k
 let timer:ReturnType<typeof setInterval>|undefined;let version=0;
 let requestId=0;
 async function poll(){const generation=version,id=++requestId;if(!props.threadId)return;try{const data=await request<{events:Event[];run_id:string}>('/api/execution?'+new URLSearchParams({thread_id:props.threadId,persona:props.persona}));if(generation!==version||id!==requestId)return;events.value=data.events||[];emit('run',data.run_id||'');}catch{}}
-watch(()=>props.active,active=>{clearInterval(timer);if(active){events.value=[];version++;void poll();timer=setInterval(poll,300);}else void poll();});
+watch(()=>props.active,active=>{clearInterval(timer);if(active){events.value=[];version++;void poll();timer=setInterval(poll,300);}else void poll();},{immediate:true});
 watch(()=>[props.threadId,props.persona],()=>{version++;events.value=[];emit('run','');});
 onUnmounted(()=>{version++;clearInterval(timer);});
 </script>

@@ -7,17 +7,20 @@
       <footer><button type="button" class="btn" @click="close">取消</button><button class="btn btn-primary" :disabled="loading || !loaded"><UiIcon name="save"/>{{loading?'处理中…':'保存文件'}}</button></footer>
     </form>
   </SettingsDialog>
+  <ConfirmModal :visible="discardOpen" title="放弃文件修改？" message="尚未保存的修改将丢失。确认后关闭编辑器。" @cancel="discardOpen=false" @confirm="discardOpen=false;emit('close')"/>
 </template>
 <script setup lang="ts">
 import {ref,watch,nextTick} from 'vue';
 import {request} from '../store/app';
 import SettingsDialog from './SettingsDialog.vue';
+import ConfirmModal from './ConfirmModal.vue';
+const discardOpen=ref(false);
 const props=defineProps<{resource:{kind:string;key:string;filename:string}|null}>();
 const emit=defineEmits<{(e:'close'):void;(e:'saved'):void}>();
 const content=ref(''),original=ref(''),error=ref(''),loading=ref(false),loaded=ref(false),input=ref<HTMLTextAreaElement|null>(null);
 let generation=0;
 watch(()=>props.resource,async(resource)=>{const version=++generation;loaded.value=false;if(!resource)return;error.value='';content.value='';original.value='';loading.value=true;try{const data=await request<{content:string}>('/api/settings-resources/document?'+new URLSearchParams(resource));if(version!==generation)return;content.value=data.content;original.value=data.content;loaded.value=true;}catch(e){if(version===generation)error.value=String(e);}finally{if(version===generation){loading.value=false;await nextTick();input.value?.focus();}}});
-function close(){if(content.value!==original.value&&!window.confirm('放弃尚未保存的文件修改？'))return;emit('close');}
+function close(){if(content.value!==original.value){discardOpen.value=true;return;}emit('close');}
 async function save(){if(!loaded.value||loading.value)return;loading.value=true;error.value='';try{await request('/api/settings-resources/document',{method:'PUT',body:JSON.stringify({...props.resource,content:content.value})});original.value=content.value;emit('saved');emit('close');}catch(e){error.value=String(e);}finally{loading.value=false;}}
 </script>
 <style scoped>

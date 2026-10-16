@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+import httpx
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -28,19 +29,21 @@ class OpenAICompatibleClient(LLMClient):
             api_key=provider.get("api_key") or os.getenv(str(provider.get("env_key") or "OPENAI_API_KEY")),
             base_url=provider.get("base_url") or None,
             default_headers=provider.get('request_headers') or None,
-            timeout=float(provider.get('timeout') or 60),
+            timeout=httpx.Timeout(float(provider.get('timeout') or 180),connect=15),
             max_retries=0,
         ) as client:
             extra = {}
             if model_config.get("reasoning_effort") in {"low", "medium", "high"}:
                 extra["reasoning_effort"] = model_config["reasoning_effort"]
             from app.execution import current, check, delta
-            if current.get() is not None:
-                content='';calls={}
+            if current.get() is not None and model_config.get('stream') is not False:
+                content='';calls={};usage=None
                 stream=client.chat.completions.create(model=model_config.get('model') or 'gpt-4o-mini',messages=messages,tools=model_config.get('tools',OPENAI_TOOLS),temperature=.4,stream=True,**extra)
                 try:
                     for chunk in stream:
                         check()
+                        chunk_usage=getattr(chunk,'usage',None)
+                        if chunk_usage is not None and hasattr(chunk_usage,'model_dump'):usage=chunk_usage.model_dump()
                         if not chunk.choices:continue
                         part=chunk.choices[0].delta
                         if part.content:
@@ -52,7 +55,7 @@ class OpenAICompatibleClient(LLMClient):
                                 if call.function.name:item['function']['name']+=call.function.name
                                 if call.function.arguments:item['function']['arguments']+=call.function.arguments
                 finally:stream.close()
-                return {'role':'assistant','content':content,'tool_calls':[calls[index] for index in sorted(calls)]}
+                return {'role':'assistant','content':content,'tool_calls':[calls[index] for index in sorted(calls)],'usage':usage}
             completion = client.chat.completions.create(
                 model=model_config.get("model") or "gpt-4o-mini",
                 messages=messages,
@@ -60,7 +63,10 @@ class OpenAICompatibleClient(LLMClient):
                 temperature=0.4,
                 **extra,
             )
-        return _normalise_model_message(completion.choices[0].message)
+        result=_normalise_model_message(completion.choices[0].message)
+        usage=getattr(completion,'usage',None)
+        if usage is not None and hasattr(usage,'model_dump'):result['usage']=usage.model_dump()
+        return result
 
     def embed(self, text: str, model_config: dict[str, Any] | None = None) -> list[float]:
         from openai import OpenAI
@@ -109,6 +115,8 @@ def model_supports_vision(model_config: dict[str, Any] | None = None) -> bool:
 def _normalise_model_message(response: Any) -> dict[str, Any]:
     if isinstance(response, dict):
         message = dict(response)
+        message.setdefault('role','assistant')
+        message.setdefault('content','')
         message["tool_calls"] = [_normalise_tool_call(call) for call in message.get("tool_calls") or []]
         return message
     tool_calls = []

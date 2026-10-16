@@ -50,7 +50,8 @@ def execution(thread_id, persona):
     with lock:
         if (thread_id, persona) in active_sessions:
             raise ValueError('此会话已有任务正在执行，请等待完成')
-        persist(thread_id, persona, {'items': [], 'running': True, 'run_id': run_id})
+        previous = read(thread_id, persona)
+        persist(thread_id, persona, {'items': previous.get('items', []), 'running': True, 'run_id': run_id})
         active_sessions.add((thread_id, persona))
     token = current.set((thread_id, persona, run_id))
     try:

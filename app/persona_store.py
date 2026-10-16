@@ -117,6 +117,11 @@ def load_persona(filename: str) -> dict[str, Any] | None:
     except Exception:
         return None
     data["filename"] = _safe_name(filename)
+    document = path.parent / 'PERSONA.md'
+    if not document.exists():
+        document = path.parent / 'SKILL.md'
+    if document.exists():
+        data['_document'] = document.read_text(encoding='utf-8')
     return data
 
 
@@ -129,7 +134,8 @@ def save_persona(filename: str, content: dict[str, Any]) -> str:
         json.dumps(content or {}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    _write_persona_md(persona_dir, content or {})
+    if not (persona_dir / 'PERSONA.md').exists():
+        _write_persona_md(persona_dir, content or {})
     return name
 
 
@@ -169,7 +175,8 @@ def persona_id(filename: str | None = None) -> str:
 def build_system_prompt(data: dict[str, Any] | None) -> str:
     data = data or {}
     char = data.get("character") or {}
-    template = ((data.get("system_prompt") or {}).get("template")) or "你是{name}，性格是{personality}。"
+    system = data.get('system_prompt') or {}
+    template = (system if isinstance(system, str) else system.get('template')) or "你是{name}，性格是{personality}。"
     catch = str(char.get("catchphrases") or "")
     parts = [p.strip() for p in catch.replace("，", ",").split(",") if p.strip()]
     values = {
@@ -185,6 +192,8 @@ def build_system_prompt(data: dict[str, Any] | None) -> str:
     except Exception:
         prompt = template
     extras = []
+    if data.get('_document'):
+        extras.append('[人格文档]\n' + data['_document'])
     if data.get("reply_style"):
         extras.append(f"[回复风格]\n{data['reply_style']}")
     if data.get("plan_style"):

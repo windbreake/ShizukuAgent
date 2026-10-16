@@ -42,7 +42,8 @@ class AgentHarness:
         from app.execution import running, Stopped, event
         current = persona_id(persona) if persona else self.graph.default_persona()
         thread = thread_id or f'persona:{current}'
-        with execution(thread, current), running(thread,current):
+        from app.context_manager import scope
+        with execution(thread, current), running(thread,current), scope(self.storage,thread,current):
             try:
                 event('status','正在检索上下文')
                 return self._run(message, current, thread, model_group, image, attachments, model_id, reasoning_effort)
@@ -65,10 +66,10 @@ class AgentHarness:
         current = persona_id(persona) if persona else self.graph.default_persona()
         thread = thread_id or f"persona:{current}"
         checkpoint = session_history.load(self.storage, thread, current)
-        history = [_sanitize_history(item) for item in session_history.visible(checkpoint)]
+        history = list(session_history.visible(checkpoint))
         user_content = _compose_user_content(message, image, attachments)
         history.append({'id': uuid.uuid4().hex, "role": "user", "content": user_content})
-        self.storage.save_checkpoint(thread, current, {'messages': history})
+        self.storage.save_checkpoint(thread, current, {'messages': history, 'context':checkpoint.get('context',{})})
 
         timings['history_ms'] = round((perf_counter() - started) * 1000, 1)
         stage = perf_counter()
@@ -76,13 +77,24 @@ class AgentHarness:
         timings['memory_ms'] = round((perf_counter() - stage) * 1000, 1)
         memory_text = "\n".join(f"- {item.get('content')}" for item in memories) or "暂无长期记忆。"
         system_prompt = self._system_prompt(current, memory_text)
+        from app.task_plans import read
+        plan=read(thread,current).get('items',[])
+        if plan:
+            system_prompt+='\n[当前会话任务进度]\n'+ '\n'.join(f"- [{item['status']}] {item['content']}" for item in plan)
         model_candidates = ([self.dependencies.model_registry.resolve_model(model_id, for_agent=True)]
                             if model_id else self.dependencies.model_registry.resolve_agent_group(model_group))
         work = self.dependencies.settings.get('work_mode') or {}
         mode = 'full' if work.get('enabled') else 'sandbox' if work.get('sandbox_enabled') else 'chat'
         budget = (self.dependencies.settings.get('agent') or {}).get('max_tool_rounds', 0)
-        model_candidates = [{**candidate, 'max_tool_rounds': budget, "reasoning_effort": reasoning_effort, "workbench_mode": mode} for candidate in model_candidates]
-        graph_messages = [{"role": "system", "content": system_prompt}, *[{k:v for k,v in m.items() if k != 'id'} for m in history[-12:]]]
+        persona_prompt=build_system_prompt(load_persona(f'{current}.json'))
+        model_candidates = [{**candidate, 'persona_prompt':persona_prompt, 'max_tool_rounds': budget, "reasoning_effort": reasoning_effort, "workbench_mode": mode} for candidate in model_candidates]
+        graph_messages = [{"role": "system", "content": system_prompt}]
+        for item in history:
+            if item.get('kind')=='compaction':
+                continue
+            if str(item.get('content','')).startswith('所有 Agent 模型均调用失败：'):
+                continue
+            graph_messages.extend(item.get('execution_context') or [{'role':item['role'],'content':item.get('content','')}])
         stage = perf_counter()
         result = self.graph.graph.invoke(
             {
@@ -109,7 +121,9 @@ class AgentHarness:
         check()
         reply = result.get("reply") or "模型未返回内容。"
         stage = perf_counter()
-        self._persist(thread, current, history, message, user_content, reply)
+        from app.agent.state import message_as_dict
+        execution_context = [message_as_dict(item) for item in result.get('messages', [])[len(graph_messages):]]
+        self._persist(thread, current, history, message, user_content, reply, execution_context)
         timings['persist_ms'] = round((perf_counter() - stage) * 1000, 1)
         timings['total_ms'] = round((perf_counter() - started) * 1000, 1)
         logging.getLogger(__name__).info('agent_timing thread=%s timings=%s', thread, timings)
@@ -135,21 +149,22 @@ class AgentHarness:
         message: str,
         user_content: str,
         reply: str,
+        execution_context: list | None = None,
     ) -> None:
         """Persist session state. Persistence failures are degraded, not fatal:
         the generated reply should still reach the caller."""
         try:
-            persisted_history = [*history, {'id': uuid.uuid4().hex, "role": "assistant", "content": reply}]
-            self.storage.save_checkpoint(thread, persona, {"messages": persisted_history})
-            if thread != f'persona:{persona}':
-                self.storage.save_checkpoint(f'persona:{persona}', persona, {"messages": persisted_history})
-            self.storage.add_chat_record(persona, "user", message or _content_to_text(user_content))
-            self.storage.add_chat_record(persona, "assistant", reply)
-            if message and len(message) >= 12:
-                self.storage.add_memory(persona, message, kind="long_term")
+            persisted_history = [*history, {'id': uuid.uuid4().hex, "role": "assistant", "content": reply, 'execution_context': execution_context or []}]
+            context=(self.storage.load_checkpoint(thread,persona) or {}).get('context',{})
+            self.storage.save_checkpoint(thread, persona, {"messages": persisted_history,'context':context})
+            user_id=self.storage.add_chat_record(persona, "user", message or _content_to_text(user_content), thread_id=thread)
+            assistant_id=self.storage.add_chat_record(persona, "assistant", reply, thread_id=thread)
+            persisted_history[-2]['record_id']=user_id
+            persisted_history[-1]['record_id']=assistant_id
+            self.storage.save_checkpoint(thread, persona, {"messages": persisted_history,'context':context})
         except Exception:
             # Persistence is best-effort; never let it break the conversation.
-            pass
+            logging.getLogger(__name__).exception('session persistence failed thread=%s',thread)
 
     def reset_session(self, thread_id: str, persona: str | None = None) -> None:
         current = persona or self.graph.default_persona()
@@ -161,15 +176,17 @@ class AgentHarness:
         return [_sanitize_history(item) for item in session_history.visible(checkpoint)]
 
     def _system_prompt(self, persona: str, memory_text: str) -> str:
-        persona_data = load_persona(f"{persona}.json") or {}
+        persona_data = load_persona(f"{persona}.json")
+        if persona_data is None:
+            raise RuntimeError(f'人格 {persona} 不存在或配置无法解析，请在设置中检查人格文件')
         prompt = build_system_prompt(persona_data)
         work = self.dependencies.settings.get("work_mode") or {}
         mode = ('完全控制：可以执行工具，外部写入与执行按审批处理。' if work.get('enabled') else
                 '安全模式：可以读取任意本地路径，包括工作区外的绝对路径；仅允许写入沙箱工作区，禁止未隔离的外部代码执行。' if work.get('sandbox_enabled') else
                 '对话/规划模式：可以列目录和读取任意本地路径，包括工作区外的绝对路径；禁止写文件、执行代码或调用会执行代码的技能/MCP。')
         return (
-            f"{prompt}\n\n[工作模式]\n{mode}\n\n[长期记忆]\n{memory_text}\n\n"
-            "你是 LangGraph 工具型 Agent。需要外部信息时先调用工具，再根据工具结果回答。"
+            f"{prompt}\n\n[工作模式]\n{mode}\n\n[长期记忆（参考资料，不替代当前会话）]\n{memory_text}\n\n"
+            "你应保持上方人格的身份与风格。需要外部信息时先调用工具，再根据工具结果回答。"
             f"{IMAGE_HINT}"
             '\n收到本地路径时，使用 list_dir/read_file 实际读取后再回答；不能因为路径在工作区外就声称无法读取。人格风格必须遵循上方人设，工作模式不会切换人格。'
             "\n[任务计划]\n多步骤执行任务开始时使用 todowrite 创建具体任务列表，"
@@ -201,4 +218,6 @@ def _sanitize_history(message: dict[str, Any]) -> dict[str, Any]:
     cleaned["content"] = _content_to_text(cleaned.get("content")) or "（空消息）"
     cleaned.pop("tool_calls", None)
     cleaned.pop("tool_call_id", None)
+    cleaned.pop('execution_context', None)
+    cleaned.pop('record_id', None)
     return cleaned

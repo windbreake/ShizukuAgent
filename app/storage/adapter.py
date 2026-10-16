@@ -33,6 +33,24 @@ class StorageAdapter:
         self._embedder = embedder
         self.db_path = self._resolve_sqlite_path()
         self.connect()
+        self._ensure_session_columns()
+
+    def _ensure_session_columns(self):
+        with self._lock:
+            if self.driver == 'sqlite':
+                columns={row['name'] for row in self._conn.execute('PRAGMA table_info(chat_records)')}
+                if 'thread_id' not in columns:
+                    self._conn.execute('ALTER TABLE chat_records ADD COLUMN thread_id TEXT')
+                self._conn.execute('CREATE INDEX IF NOT EXISTS chat_records_session ON chat_records(thread_id, persona)')
+                self._conn.commit()
+            else:
+                with self._sql_conn.cursor() as cur:
+                    if self.driver in {'postgres','postgresql'}:
+                        cur.execute('ALTER TABLE chat_records ADD COLUMN IF NOT EXISTS thread_id VARCHAR(128)')
+                    else:
+                        cur.execute("SHOW COLUMNS FROM chat_records LIKE 'thread_id'")
+                        if not cur.fetchone():
+                            cur.execute('ALTER TABLE chat_records ADD COLUMN thread_id VARCHAR(128)')
 
     def set_embedder(self, embedder: Callable[[str], list[float]]) -> None:
         self._embedder = embedder
@@ -217,21 +235,21 @@ class StorageAdapter:
     def _now(self) -> str:
         return datetime.utcnow().isoformat(timespec="seconds") + "Z"
 
-    def add_chat_record(self, persona: str, role: str, content: str) -> int:
+    def add_chat_record(self, persona: str, role: str, content: str, thread_id: str | None = None) -> int:
         with self._lock:
             if self.driver == "sqlite":
                 assert self._conn is not None
                 cur = self._conn.execute(
-                    "INSERT INTO chat_records(persona, role, content, created_at) VALUES (?, ?, ?, ?)",
-                    (persona, role, content, self._now()),
+                    "INSERT INTO chat_records(persona, role, content, created_at, thread_id) VALUES (?, ?, ?, ?, ?)",
+                    (persona, role, content, self._now(), thread_id),
                 )
                 self._conn.commit()
                 return int(cur.lastrowid)
             with self._sql_conn.cursor() as cur:
                 placeholder = "%s"
                 cur.execute(
-                    f"INSERT INTO chat_records(persona, role, content, created_at) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})",
-                    (persona, role, content, self._now()),
+                    f"INSERT INTO chat_records(persona, role, content, created_at, thread_id) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})",
+                    (persona, role, content, self._now(), thread_id),
                 )
                 return int(getattr(cur, "lastrowid", 0) or 0)
 
@@ -448,17 +466,57 @@ class StorageAdapter:
                         """,
                         (thread_id, persona, payload, self._now()),
                     )
+
                 else:
-                    cur.execute(
-                        """
-                        INSERT INTO checkpoints(thread_id, persona, state_json, updated_at)
-                        VALUES (%s, %s, %s, %s)
-                        ON DUPLICATE KEY UPDATE
-                            state_json=VALUES(state_json),
-                            updated_at=VALUES(updated_at)
-                        """,
-                        (thread_id, persona, payload, self._now()),
-                    )
+                    cur.execute('INSERT INTO checkpoints(thread_id, persona, state_json, updated_at) VALUES (%s,%s,%s,%s) ON DUPLICATE KEY UPDATE state_json=VALUES(state_json),updated_at=VALUES(updated_at)',(thread_id,persona,payload,self._now()))
+
+    def delete_session(self, thread_id: str, persona: str) -> dict:
+        """Delete session rows, checkpoint and explicitly session-owned memories.
+
+        Older records lack a thread key. Match only unambiguous legacy rows,
+        never delete another session's records merely because the text matches.
+        """
+        with self._lock:
+            connection=self._conn if self.driver=='sqlite' else self._sql_conn
+            if self.driver in {'postgres','postgresql'}:
+                from psycopg2.extras import RealDictCursor
+                cur=connection.cursor(cursor_factory=RealDictCursor)
+            else:cur=connection.cursor()
+            def execute(sql,args=()):
+                cur.execute(sql if self.driver=='sqlite' else sql.replace('?', '%s'),args)
+                return cur
+            try:
+                checkpoints=[dict(row) for row in execute('SELECT thread_id,state_json FROM checkpoints WHERE persona=?',(persona,)).fetchall()]
+                target=next((_safe_json(row['state_json']) for row in checkpoints if row['thread_id']==thread_id),{}) or {}
+                messages=target.get('messages',[])
+                # Previous versions copied a session onto persona:<id>.
+                aliases=[row['thread_id'] for row in checkpoints if row['thread_id']==f'persona:{persona}' and row['thread_id']!=thread_id and messages and (_safe_json(row['state_json']) or {}).get('messages')==messages]
+                other_content={(m.get('role'),m.get('content')) for row in checkpoints if row['thread_id'] not in [thread_id,*aliases] for m in (_safe_json(row['state_json']) or {}).get('messages',[])}
+                deleted=execute('DELETE FROM chat_records WHERE thread_id=? AND persona=?',(thread_id,persona)).rowcount
+                unresolved=0
+                for message in messages:
+                    if message.get('record_id'):
+                        deleted+=execute('DELETE FROM chat_records WHERE id=? AND persona=? AND (thread_id=? OR thread_id IS NULL)',(message['record_id'],persona,thread_id)).rowcount
+                    elif (message.get('role'),message.get('content')) not in other_content:
+                        rows=execute('SELECT id FROM chat_records WHERE persona=? AND role=? AND content=? AND thread_id IS NULL',(persona,message.get('role'),message.get('content'))).fetchall()
+                        if len(rows)==1:
+                            deleted+=execute('DELETE FROM chat_records WHERE id=?',(dict(rows[0])['id'],)).rowcount
+                        elif rows:unresolved+=len(rows)
+                    else:
+                        unresolved+=execute('SELECT COUNT(*) AS total FROM chat_records WHERE persona=? AND role=? AND content=? AND thread_id IS NULL',(persona,message.get('role'),message.get('content'))).fetchone()['total']
+                for thread in [thread_id,*aliases]:
+                    execute('DELETE FROM checkpoints WHERE thread_id=? AND persona=?',(thread,persona))
+                memories=0
+                for row in execute('SELECT id,metadata FROM memories WHERE persona=?',(persona,)).fetchall():
+                    item=dict(row)
+                    if (_safe_json(item['metadata']) or {}).get('thread_id')==thread_id:
+                        memories+=execute('DELETE FROM memories WHERE id=?',(item['id'],)).rowcount
+                connection.commit()
+                return {'records':deleted,'memories':memories,'legacy_unresolved':unresolved}
+            except Exception:
+                connection.rollback()
+                raise
+            finally:cur.close()
 
     def load_checkpoint(self, thread_id: str, persona: str) -> dict[str, Any] | None:
         with self._lock:

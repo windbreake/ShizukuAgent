@@ -295,6 +295,8 @@ async def api_chat(body: ChatRequest) -> dict[str, Any]:
                 return _agent_service().run(body.message, persona=persona, thread_id=body.thread_id, model_group=body.model_group, model_id=body.model_id, reasoning_effort=body.reasoning_effort)
             except ApprovalDenied as error:
                 return {'success':True,'persona':persona,'reply':str(error),'trace':[],'engine':'permission-rejected'}
+            except RuntimeError as error:
+                return {'success':False,'persona':persona,'reply':'','error':str(error),'trace':[],'engine':'model-error'}
     result = await run_in_threadpool(execute)
     TOKEN_STATS["input_tokens"] += max(len(body.message) // 4, 1)
     TOKEN_STATS["output_tokens"] += max(len(result["reply"]) // 4, 1)

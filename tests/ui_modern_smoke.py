@@ -28,6 +28,8 @@ def fixture(route):
     elif path.startswith('workbench/files'): payload.update(root='test-workspace',entries=[])
     elif path == 'workbench/changes': payload.update(initialized=False,status='',diff='')
     elif path == 'chat': payload.update(persona='shizuku',reply='测试回复：请求已正确连接。',engine='fixture',active_model='test',trace=[])
+    elif path.startswith('workbench/context'):
+        payload.update(context={'model':'fixture-model','provider':'demo','context_limit':32768,'estimated_tokens':2048,'usage_percent':6.3,'request_messages':[{'role':'system','content':'人格约束'},{'role':'user','content':'上下文查看测试'}],'compaction':{'summary':'目标：保留任务上下文。','count':4}},messages=[{'id':'original1','role':'user','content':'上下文查看测试'}],message_count=1,parts={'user':100,'assistant':200,'tool':300,'system':400},user_messages=1,assistant_messages=0)
     elif path.startswith('task-plan?'): payload.update(items=[{'content':'检查项目','status':'completed','priority':'high'},{'content':'验证修改','status':'in_progress','priority':'medium'}],running=True,run_id='fixture')
     elif path == 'gateway': payload.update(config={'host':'127.0.0.1','port':8888,'api_enabled':True,'websocket_enabled':False},current={'host':'127.0.0.1','port':8888},message='网关设置已保存')
     elif path == 'personas': payload.update(personas=[{'filename':'shizuku.json','name':'Shizuku','is_active':True},{'filename':'alice.json','name':'Alice','is_active':False}])
@@ -65,6 +67,10 @@ with sync_playwright() as p:
         assert files['x'] >= chat['x']+chat['width'],(chat,files)
         assert abs(chat['height']-files['height']) < 3,(chat,files)
     assert_panels()
+    assert page.locator('.chat-col>.pane-head button').count()==1
+    assert page.locator('.titlebar .sidebar-toggle').count()==2
+    theme_box=page.locator('.theme-toggle').bounding_box()
+    assert page.locator('.titlebar .sidebar-toggle').first.bounding_box()['x']>theme_box['x']
     for width in [280, 360]:
         panel = page.locator('.workspace-panel')
         panel.evaluate('(el,width)=>{el.style.width=width+"px";el.style.justifySelf="end"}', width)
@@ -112,6 +118,39 @@ with sync_playwright() as p:
     page.reload()
     assert page.locator('html').get_attribute('data-theme')=='dark'
     page.get_by_role('button',name='切换浅色主题').click()
+    # Resize a mounted workbench, including saved oversized panes and usable drawers.
+    for width,height in [(1920,1080),(1280,720),(1024,768),(820,700),(390,844),(320,568),(844,390)]:
+        page.set_viewport_size({'width':width,'height':height})
+        page.wait_for_timeout(120)
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'),(width,height)
+        chat=page.locator('.chat-col').bounding_box()
+        assert chat['width'] >= min(550,width-28),(width,chat)
+        for selector in ['.composer','.composer-toolbar','.composer-toolbar>.send']:
+            box=page.locator(selector).bounding_box()
+            assert box['x']>=chat['x'] and box['x']+box['width']<=chat['x']+chat['width']+1,(width,selector,box,chat)
+            assert box['y']+box['height']<=height,(width,height,selector,box)
+        assert page.locator('.chat-col>.pane-body').bounding_box()['height']>60,(width,height)
+        for label in ['模型','强度','人格','工作模式']:
+            page.get_by_role('button',name=label,exact=True).click()
+            popup=page.locator('.composer-toolbar .composer-popover').bounding_box()
+            assert popup['x']>=0 and popup['x']+popup['width']<=width and popup['y']>=0,(width,height,label,popup)
+            page.keyboard.press('Escape')
+            page.locator('.composer-toolbar .composer-popover').wait_for(state='detached')
+        if width<1180:
+            page.get_by_title('收起或展开右侧栏').click()
+            panel=page.locator('.workspace-panel')
+            assert panel.is_visible()
+            assert panel.evaluate('(el)=>el.scrollWidth<=el.clientWidth+2')
+            page.keyboard.press('Escape')
+            assert panel.count()==0
+        if width<900:
+            page.get_by_role('button',name='隐藏或显示会话列表',exact=True).click()
+            assert page.locator('.sessions').is_visible()
+            page.get_by_role('button',name='关闭侧栏',exact=True).click(position={'x':width-15,'y':30})
+            assert page.locator('.sessions').count()==0
+    page.set_viewport_size({'width':1440,'height':1000})
+    page.wait_for_timeout(120)
+    assert_panels()
     page.get_by_role('button',name='模型',exact=True).click()
     page.get_by_role('textbox',name='搜索模型',exact=True).fill('missing')
     page.get_by_text('没有匹配项',exact=True).wait_for()
@@ -120,7 +159,19 @@ with sync_playwright() as p:
     page.get_by_role('button',name='完全控制',exact=True).click()
     password_dialog = page.get_by_role('dialog')
     password_dialog.wait_for()
+    page.wait_for_timeout(250)
+    dialog_box=password_dialog.bounding_box()
+    assert dialog_box['width']<=480 and abs(dialog_box['x']+dialog_box['width']/2-720)<3,dialog_box
+    assert abs(dialog_box['y']+dialog_box['height']/2-500)<3,dialog_box
     assert password_dialog.get_by_label('安全密码').evaluate('(el)=>document.activeElement===el')
+    assert password_dialog.evaluate('(el)=>el.matches(":modal")')
+    for width,height in [(390,844),(320,568),(844,390)]:
+        page.set_viewport_size({'width':width,'height':height})
+        box=password_dialog.bounding_box()
+        assert box['x']>=0 and box['y']>=0 and box['x']+box['width']<=width and box['y']+box['height']<=height,box
+        assert password_dialog.evaluate('(el)=>el.scrollWidth<=el.clientWidth+1')
+    page.set_viewport_size({'width':1440,'height':1000})
+    page.screenshot(path=str(root/'data'/'ui-mode-warning.png'))
     page.keyboard.press('Escape')
     password_dialog.wait_for(state='hidden')
     page.get_by_role('button',name='添加上下文或命令').click()
@@ -128,7 +179,46 @@ with sync_playwright() as p:
     plus=page.get_by_role('button',name='添加上下文或命令').bounding_box()
     assert menu['y']+menu['height'] < plus['y'],(menu,plus)
     page.get_by_role('button',name='命令 /',exact=True).click()
-    page.get_by_role('button',name='/new · 新会话',exact=True).wait_for()
+    page.get_by_role('option',name='/new · 新会话',exact=True).wait_for()
+    command_dialog=page.get_by_role('dialog',name='命令面板')
+    page.wait_for_timeout(250)
+    box=command_dialog.bounding_box()
+    composer_box=page.locator('.composer-surface').bounding_box()
+    assert box['y']+box['height']<=composer_box['y']-3,(box,composer_box)
+    assert abs(box['x']-composer_box['x'])<2,(box,composer_box)
+    assert abs(box['width']-composer_box['width'])<2,(box,composer_box)
+    page.get_by_role('textbox',name='搜索命令',exact=True).fill('compact')
+    assert page.get_by_role('option',name='/compact · 压缩上下文',exact=True).get_attribute('aria-disabled')=='true'
+    page.get_by_role('textbox',name='搜索命令',exact=True).fill('不存在的命令')
+    page.get_by_text('没有匹配的命令',exact=True).wait_for()
+    page.keyboard.press('Escape')
+    for width,height in [(390,844),(320,568),(844,390),(1440,1000)]:
+        page.set_viewport_size({'width':width,'height':height})
+        page.locator('.composer textarea').fill('/files')
+        popup=page.get_by_role('dialog',name='命令面板')
+        popup.wait_for()
+        rect=popup.bounding_box()
+        assert rect['x']>=0 and rect['y']>=0 and rect['x']+rect['width']<=width and rect['y']+rect['height']<=height,(width,height,rect)
+        assert popup.evaluate('(el)=>el.scrollWidth<=el.clientWidth+1')
+        page.get_by_role('option',name='/files · 文件侧栏',exact=True).click()
+        assert page.locator('.workspace-panel').is_visible()
+        assert popup.is_hidden()
+        assert page.locator('.composer textarea').input_value()==''
+        page.keyboard.press('Escape')
+    page.locator('.composer textarea').fill('/context')
+    page.keyboard.press('Enter')
+    page.get_by_role('dialog',name='上下文',exact=True).wait_for()
+    page.keyboard.press('Escape')
+    page.keyboard.press('Control+k')
+    page.screenshot(path=str(root/'data'/'ui-slash-commands.png'))
+    page.keyboard.press('Escape')
+    page.locator('.composer textarea').fill('保留草稿')
+    page.keyboard.press('Control+k')
+    page.get_by_role('textbox',name='搜索命令',exact=True).fill('context')
+    page.keyboard.press('ArrowDown')
+    page.keyboard.press('Enter')
+    page.get_by_role('dialog',name='上下文',exact=True).wait_for()
+    assert page.locator('.composer textarea').input_value()=='保留草稿'
     page.keyboard.press('Escape')
     page.locator('.composer textarea').fill('')
     page.get_by_role('button',name='分析项目',exact=True).click()
@@ -136,6 +226,20 @@ with sync_playwright() as p:
     page.locator('.composer textarea').fill('界面连通性测试')
     page.get_by_role('button',name='发送',exact=True).click()
     page.locator('.bubble').filter(has_text='测试回复：请求已正确连接。').wait_for()
+    compact_history=[{'id':'u-compact','role':'user','content':'界面连通性测试'},{'id':'c-compact','role':'assistant','kind':'compaction','status':'completed','content':'上下文压缩完成 · 估算 8000 → 2000 tokens\n\n目标：继续任务。'}]
+    page.route('**/api/workbench/session?*',lambda route:route.fulfill(json={'success':True,'messages':compact_history}))
+    pending_compaction=[]
+    page.route('**/api/workbench/context/compact',lambda route:pending_compaction.append(route))
+    page.locator('.composer textarea').fill('/compact')
+    page.keyboard.press('Enter')
+    page.locator('.thread .bubble').filter(has_text='正在压缩上下文…').wait_for()
+    assert page.get_by_role('dialog',name='上下文',exact=True).is_hidden()
+    assert len(pending_compaction)==1
+    pending_compaction.pop().fulfill(json={'success':True})
+    page.locator('.bubble').filter(has_text='上下文压缩完成').wait_for()
+    page.get_by_text('上下文压缩 · /compact',exact=True).wait_for()
+    page.unroute('**/api/workbench/context/compact')
+    page.unroute('**/api/workbench/session?*')
     held=[]
     def hold_chat(route): held.append(route)
     page.route('**/api/chat',hold_chat)
@@ -163,6 +267,39 @@ with sync_playwright() as p:
     held[1].fulfill(status=200,content_type='application/json',body=json.dumps({'success':True,'reply':'第二条完成','trace':[]}))
     page.locator('.bubble').filter(has_text='第二条完成').wait_for()
     page.unroute('**/api/chat',hold_chat)
+    # The final answer must render even while the post-run Git request is held.
+    changes_held=[]
+    changes_count=[0]
+    def hold_final_changes(route):
+        changes_count[0]+=1
+        if changes_count[0]==1:fixture(route)
+        else:changes_held.append(route)
+    page.route('**/api/workbench/changes',hold_final_changes)
+    long_reply='完整输出开头\n\n'+('这是长回复正文，用来验证完成后的显示与滚动。\n\n'*150)+'完整输出结尾标记'
+    def long_chat(route):route.fulfill(status=200,content_type='application/json',body=json.dumps({'success':True,'reply':long_reply,'trace':[]}))
+    page.route('**/api/chat',long_chat)
+    page.locator('.composer textarea').fill('测试完整输出')
+    page.get_by_role('button',name='发送',exact=True).click()
+    final=page.locator('.msg.agent .bubble').last
+    final.filter(has_text='完整输出结尾标记').wait_for()
+    page.wait_for_timeout(150)
+    assert changes_held,'Post-run Git request should still be pending'
+    assert page.locator('.execution-feed').count()==0
+    assert page.locator('.chat-col>.pane-body').evaluate('(el)=>el.scrollHeight-el.clientHeight-el.scrollTop<5')
+    for route in changes_held:fixture(route)
+    page.unroute('**/api/workbench/changes',hold_final_changes)
+    page.unroute('**/api/chat',long_chat)
+    page.get_by_role('button',name='查看上下文',exact=True).click()
+    context_dialog=page.get_by_role('dialog',name='上下文',exact=True)
+    context_dialog.wait_for()
+    assert context_dialog.evaluate('(el)=>el.matches(":modal")')
+    context_dialog.get_by_text('fixture-model',exact=True).wait_for()
+    context_dialog.get_by_role('button',name='原始消息',exact=True).click()
+    context_dialog.get_by_text('user · original1',exact=False).wait_for()
+    context_dialog.get_by_role('button',name='压缩上下文',exact=True).click()
+    context_dialog.get_by_text('目标：保留任务上下文。',exact=True).wait_for()
+    page.keyboard.press('Escape')
+    context_dialog.wait_for(state='hidden')
     page.locator('.composer textarea').fill('/missing-command')
     page.get_by_role('button',name='发送',exact=True).click()
     page.locator('.toast-message').filter(has_text='未知命令').wait_for()
@@ -178,6 +315,38 @@ with sync_playwright() as p:
     page.screenshot(path=str(root/'data'/'ui-modern-light.png'),full_page=True)
     page.get_by_role('button',name='切换深色主题').click()
     page.screenshot(path=str(root/'data'/'ui-modern-dark.png'),full_page=True)
+    deleted_sessions=[]
+    def delete_fixture(route):
+        if route.request.method=='DELETE':
+            deleted_sessions.append(route.request.post_data_json)
+            route.fulfill(status=200,content_type='application/json',body=json.dumps({'success':True,'records':6}))
+        else:fixture(route)
+    page.route('**/api/workbench/session',delete_fixture)
+    session_count=page.locator('.session-row').count()
+    page.locator('.session-row').first.hover()
+    page.locator('.session-delete').first.click()
+    confirmation=page.get_by_role('dialog',name='删除此会话？')
+    confirmation.wait_for()
+    assert confirmation.evaluate('(el)=>el.matches(":modal")')
+    for width,height in [(1440,1000),(390,844),(320,568),(844,390)]:
+        page.set_viewport_size({'width':width,'height':height})
+        box=confirmation.bounding_box()
+        assert abs(box['x']+box['width']/2-width/2)<2 and abs(box['y']+box['height']/2-height/2)<2,box
+        assert box['width']<=440 and box['y']>=0 and box['y']+box['height']<=height,box
+        assert confirmation.evaluate('(el)=>el.scrollWidth<=el.clientWidth+1')
+    page.set_viewport_size({'width':1440,'height':1000})
+    page.screenshot(path=str(root/'data'/'ui-delete-confirmation.png'))
+    page.keyboard.press('Escape')
+    confirmation.wait_for(state='hidden')
+    assert not deleted_sessions
+    page.locator('.session-row').first.hover()
+    page.locator('.session-delete').first.click()
+    page.get_by_role('dialog',name='删除此会话？').get_by_role('button',name='确认',exact=True).click()
+    page.wait_for_timeout(250)
+    assert len(deleted_sessions)==1 and deleted_sessions[0]['thread_id']
+    assert page.locator('.session-row').count()==session_count-1
+    assert page.locator('.bubble').count()==0
+    assert len(json.loads(page.evaluate('localStorage.getItem("sc_sessions")')))==session_count-1
     page.get_by_role('link',name='设置',exact=True).click()
     page.get_by_role('button',name='MCP 集成',exact=True).click()
     page.locator('.setting-section>summary').filter(has_text='MCP 服务器').wait_for()

@@ -45,6 +45,8 @@
               <label>Provider<select v-model="model.provider"><option v-for="(_, providerId) in form.providers" :key="providerId" :value="providerId">{{ providerId }}</option></select></label>
               <label>远端模型名<input v-model="model.model" type="text" placeholder="gpt-4o-mini" /></label>
               <label>能力<input v-model="model.capabilitiesText" type="text" placeholder="chat, tools, vision" /></label>
+              <label>上下文窗口（tokens）<input v-model.number="model.context_window" type="number" min="1024" placeholder="32768" /></label>
+              <label>预留输出（tokens）<input v-model.number="model.max_output_tokens" type="number" min="256" placeholder="4096" /></label>
             </div>
             <div class="check-row">
               <label><input v-model="model.enabled" type="checkbox" />启用</label>
@@ -140,7 +142,7 @@ const section=ref(tabs.some(t=>t.id===route.query.section) ? String(route.query.
 watch(()=>route.query.section,value=>{if(tabs.some(t=>t.id===value))section.value=String(value);});
 
 type Provider = { name: string; type: string; base_url: string; api_key: string };
-type Model = { provider: string; model: string; name: string; capabilitiesText: string; enabled: boolean; auxiliary_only: boolean };
+type Model = { provider: string; model: string; name: string; capabilitiesText: string; enabled: boolean; auxiliary_only: boolean; context_window?:number; max_output_tokens?:number };
 type Group = { name: string; purpose: string; strategy: string; modelsText: string };
 type AuxiliaryApi = { enabled: boolean; model: string; endpoint: string };
 type FormData = {
@@ -175,7 +177,7 @@ const removeGroup = (id: string) => { delete form.model_groups[id]; if (form.def
 const applyConfig = (incoming: any) => {
   const next = emptyForm();
   next.providers = Object.fromEntries(Object.entries(incoming.providers || {}).map(([id, raw]: [string, any]) => [id, { name: raw.name || id, type: raw.type || "openai_compatible", base_url: raw.base_url || "", api_key: "" }]));
-  next.models = Object.fromEntries(Object.entries(incoming.models || {}).map(([id, raw]: [string, any]) => [id, { provider: raw.provider || "", model: raw.model || "", name: raw.name || id, capabilitiesText: (raw.capabilities || []).join(", "), enabled: raw.enabled !== false, auxiliary_only: raw.auxiliary_only === true }]));
+  next.models = Object.fromEntries(Object.entries(incoming.models || {}).map(([id, raw]: [string, any]) => [id, { ...raw, provider: raw.provider || "", model: raw.model || "", name: raw.name || id, capabilitiesText: (raw.capabilities || []).join(", "), enabled: raw.enabled !== false, auxiliary_only: raw.auxiliary_only === true }]));
   next.model_groups = Object.fromEntries(Object.entries(incoming.model_groups || {}).map(([id, raw]: [string, any]) => [id, { name: raw.name || id, purpose: raw.purpose || "agent", strategy: raw.strategy || "fallback", modelsText: (raw.models || []).join(", ") }]));
   next.default_model_group = incoming.default_model_group || Object.keys(next.model_groups)[0] || "";
   for (const [id, raw] of Object.entries(incoming.auxiliary_apis || {})) next.auxiliary_apis[id] = { enabled: (raw as any).enabled === true, model: (raw as any).model || "", endpoint: (raw as any).endpoint || "" };
@@ -194,7 +196,7 @@ const saveConfig = async () => {
   try {
     const registry = {
       providers: Object.fromEntries(Object.entries(form.providers).map(([id, value]) => [id, { ...value }])),
-      models: Object.fromEntries(Object.entries(form.models).map(([id, value]) => [id, { provider: value.provider, model: value.model, name: value.name, capabilities: value.capabilitiesText.split(",").map((item) => item.trim()).filter(Boolean), enabled: value.enabled, auxiliary_only: value.auxiliary_only }])),
+      models: Object.fromEntries(Object.entries(form.models).map(([id, value]) => {const {capabilitiesText,...model}=value;return [id,{...model,context_window:Number(value.context_window)||undefined,max_output_tokens:Number(value.max_output_tokens)||undefined,capabilities:capabilitiesText.split(',').map(item=>item.trim()).filter(Boolean)}];})),
       model_groups: Object.fromEntries(Object.entries(form.model_groups).map(([id, value]) => [id, { name: value.name, purpose: value.purpose, strategy: value.strategy, models: value.modelsText.split(",").map((item) => item.trim()).filter(Boolean) }])),
       default_model_group: form.default_model_group,
       auxiliary_apis: form.auxiliary_apis

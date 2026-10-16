@@ -31,6 +31,75 @@ class RevertSession(Session):
     message_id: str
 
 
+class ContextSession(Session):
+    model_id: str | None = None
+
+
+@router.get('/context')
+def inspect_context(thread_id: str, persona: str):
+    from app.agent.agent_service import get_agent_service
+    from app.persona_store import persona_id
+    from app import session_history, context_manager
+    current=persona_id(persona)
+    storage=get_agent_service().harness.storage
+    checkpoint=session_history.load(storage,thread_id,current)
+    context=checkpoint.get('context',{})
+    messages=session_history.visible(checkpoint)
+    parts={'user':0,'assistant':0,'tool':0,'system':0}
+    for item in context.get('request_messages',[]):
+        role=item.get('role','system')
+        parts[role]=parts.get(role,0)+context_manager.estimate(item)
+    return {'success':True,'context':context,'messages':messages,'message_count':len(messages),'parts':parts,'user_messages':sum(m.get('role')=='user' for m in messages),'assistant_messages':sum(m.get('role')=='assistant' for m in messages)}
+
+
+@router.post('/context/compact')
+def compact_context(body: ContextSession):
+    from app.agent.agent_service import get_agent_service
+    from app.persona_store import persona_id
+    from app import task_plans, session_history, context_manager
+    current=persona_id(body.persona)
+    service=get_agent_service()
+    with task_plans.lock:
+        if (body.thread_id,current) in task_plans.active_sessions:
+            return JSONResponse({'success':False,'error':'请等待当前回复结束后压缩'},status_code=409)
+        task_plans.active_sessions.add((body.thread_id,current))
+    import uuid
+    from datetime import datetime, timezone
+    storage=service.harness.storage
+    checkpoint=session_history.load(storage,body.thread_id,current)
+    previous_compaction=checkpoint.get('context',{}).get('compaction',{}).get('created_at')
+    operation={'id':uuid.uuid4().hex,'role':'assistant','kind':'compaction','status':'running','created_at':datetime.now(timezone.utc).isoformat(),'content':'正在压缩上下文…'}
+    checkpoint['messages']=[*session_history.visible(checkpoint),operation]
+    checkpoint.pop('revert',None)
+    storage.save_checkpoint(body.thread_id,current,checkpoint)
+    try:
+        model=service.harness.dependencies.model_registry.resolve_model(body.model_id,for_agent=True) if body.model_id else service.harness.dependencies.model_registry.resolve_agent_group()[0]
+        checkpoint=session_history.load(service.harness.storage,body.thread_id,current)
+        messages=[{'role':'system','content':service.harness._system_prompt(current,'手动压缩不加载额外记忆。')}]
+        for item in session_history.visible(checkpoint):
+            if item.get('kind')=='compaction':continue
+            messages.extend(item.get('execution_context') or [{'role':item['role'],'content':item.get('content','')}])
+        from app.agent.llm import OpenAICompatibleClient
+        with context_manager.scope(service.harness.storage,body.thread_id,current):
+            context_manager.prepare(messages,model,OpenAICompatibleClient().chat,force=True)
+        latest=session_history.load(storage,body.thread_id,current)
+        context=latest.get('context',{})
+        changed=context.get('compaction',{}).get('created_at')!=previous_compaction
+        compression=context.get('compression',{})
+        operation.update(status='completed',content=(f"上下文压缩完成 · 估算 {compression.get('before_tokens',0):,} → {compression.get('after_tokens',0):,} tokens\n\n"+context.get('compaction',{}).get('summary','')) if changed else '无需压缩：当前没有可合并的早期历史，已保留最近对话。')
+        latest['messages']=[operation if item.get('id')==operation['id'] else item for item in latest.get('messages',[])]
+        storage.save_checkpoint(body.thread_id,current,latest)
+        return inspect_context(body.thread_id,current)
+    except Exception as exc:
+        latest=session_history.load(storage,body.thread_id,current)
+        operation.update(status='failed',content=f'上下文压缩失败：{exc}\n原始对话记录已保留，可以重试 /compact。')
+        latest['messages']=[operation if item.get('id')==operation['id'] else item for item in latest.get('messages',[])]
+        storage.save_checkpoint(body.thread_id,current,latest)
+        return JSONResponse({'success':False,'error':str(exc)},status_code=400)
+    finally:
+        with task_plans.lock:task_plans.active_sessions.discard((body.thread_id,current))
+
+
 @router.post('/session/revert')
 def revert_session(body: RevertSession):
     from app.agent.agent_service import get_agent_service
@@ -47,7 +116,7 @@ def revert_session(body: RevertSession):
         except ValueError as exc:
             return JSONResponse({'success': False, 'error': str(exc)}, status_code=404)
         persist(body.thread_id, current, {'items': [], 'running': False, 'run_id': ''})
-        return {'success': True, 'draft': draft, 'messages': messages}
+        return {'success': True, 'draft': draft, 'messages': service.harness.get_history(body.thread_id,current)}
 
 
 @router.get('/session')
@@ -74,7 +143,7 @@ def unrevert_session(body: Session):
         checkpoint = session_history.load(storage, body.thread_id, current)
         checkpoint.pop('revert', None)
         storage.save_checkpoint(body.thread_id, current, checkpoint)
-        return {'success': True, 'messages': checkpoint.get('messages', [])}
+        return {'success': True, 'messages': get_agent_service().harness.get_history(body.thread_id,current)}
 
 
 @router.post('/session/reset')
@@ -82,6 +151,39 @@ def reset_session(body: Session):
     from app.agent.agent_service import get_agent_service
     get_agent_service().reset_session(body.thread_id, body.persona)
     return {'success': True}
+
+
+@router.post('/session/fork')
+def fork_session(body: Session):
+    from app.agent.agent_service import get_agent_service
+    from app.persona_store import persona_id
+    from app import session_history
+    from app.task_plans import lock, active_sessions
+    current = persona_id(body.persona)
+    with lock:
+        if (body.thread_id, current) in active_sessions:
+            return JSONResponse({'success': False, 'error': '请等待当前回复结束后分叉'}, status_code=409)
+        service = get_agent_service()
+        target = session_history.fork(service.harness.storage, body.thread_id, current)
+        return {'success': True, 'thread_id': target, 'messages': service.harness.get_history(target, current)}
+
+
+@router.delete('/session')
+def delete_session(body: Session):
+    from app.agent.agent_service import get_agent_service
+    from app.persona_store import persona_id
+    from app import task_plans, execution, approvals
+    current=persona_id(body.persona)
+    with task_plans.lock:
+        if (body.thread_id,current) in task_plans.active_sessions:
+            return JSONResponse({'success':False,'error':'请先中止或等待此会话的任务结束'},status_code=409)
+        result=get_agent_service().harness.storage.delete_session(body.thread_id,current)
+        task_plans.path_for(body.thread_id,current).unlink(missing_ok=True)
+        with execution.lock:
+            execution.runs.pop((body.thread_id,current),None)
+        with approvals.lock:
+            approvals.allowed.difference_update({item for item in approvals.allowed if item[:2]==(body.thread_id,current)})
+        return {'success':True,**result}
 
 
 def root():

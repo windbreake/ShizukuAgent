@@ -51,7 +51,8 @@ def wait_for(call,*args):
     while True:
         check()
         try:return future.result(timeout=.1)
-        except TimeoutError:continue
+        except TimeoutError:
+            if future.done():return future.result()
 
 @router.get('')
 def status(thread_id:str,persona:str):
